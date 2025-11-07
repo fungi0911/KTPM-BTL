@@ -7,6 +7,23 @@ auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 @auth_bp.route("/register", methods=["POST"])
 def register():
+    """Create a user
+    ---
+    tags:
+      - Auth
+    parameters:
+      - name: body
+        in: body
+        schema:
+          properties:
+            username: {type: string}
+            name: {type: string}
+            password: {type: string}
+            role: {type: string}  
+    responses:
+      201:
+        description: User created successfully  
+    """
     data = request.json
     user = User(
         name=data["name"],
@@ -20,6 +37,21 @@ def register():
 
 @auth_bp.route("/login", methods=["POST"])
 def login():
+    """Login
+    ---
+    tags:
+      - Auth
+    parameters:
+      - name: body
+        in: body
+        schema:
+          properties:
+            username: {type: string}
+            password: {type: string}
+    responses:
+      200:
+        description: Login successful, returns access token
+    """
     data = request.json
     user = User.query.filter_by(username=data["username"]).first()
     if user and user.check_password(data["password"]):

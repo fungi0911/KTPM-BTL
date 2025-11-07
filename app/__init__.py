@@ -14,12 +14,20 @@ def create_app():
 
     @app.before_request
     def check_jwt():
-        if request.path.startswith("/apidocs") or request.path.startswith("/flasgger_static"):
+        allowed_paths = [
+            "/apidocs",
+            "/flasgger_static",
+            "/apispec_1.json",
+            "/auth/login",
+            "/auth/register"
+        ]
+        if any(request.path.startswith(p) for p in allowed_paths):
             return
         try:
-            verify_jwt_in_request()  
+            verify_jwt_in_request()
         except exceptions.NoAuthorizationError:
             return {"msg": "Missing or invalid token"}, 401
+
 
     swagger_template = {
         "swagger": "2.0",
@@ -28,6 +36,14 @@ def create_app():
             "description": "API documentation for the Inventory system",
             "version": "1.0.0"
         },
+        # Tag groups for clearer grouping in Swagger UI
+        "tags": [
+            {"name": "Auth", "description": "Authentication & token issuance"},
+            {"name": "Users", "description": "User management"},
+            {"name": "Products", "description": "Product catalog operations"},
+            {"name": "Warehouses", "description": "Warehouse management"},
+            {"name": "Warehouse Items", "description": "Inventory items in warehouses"},
+        ],
         "securityDefinitions": {
             "Bearer": {
                 "type": "apiKey",
