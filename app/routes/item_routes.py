@@ -1,5 +1,7 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
+
+from app.event_store.event_store import append_event
 from ..models.warehouse_item import WarehouseItem
 from ..models.product import Product
 from ..models.warehouse import Warehouse
@@ -234,3 +236,75 @@ def delete_warehouse_item(item_id):
     db.session.delete(item)
     db.session.commit()
     return '', 204
+
+# @item_bp.route('/<int:item_id>/increment', methods=['POST'])
+# @jwt_required()
+# def increment_item_quantity(item_id):
+#     """Atomically increment quantity of a warehouse item.
+#     ---
+#     tags:
+#       - Warehouse Items
+#     parameters:
+#       - name: item_id
+#         in: path
+#         required: true
+#         type: integer
+#       - name: body
+#         in: body
+#         required: true
+#         schema:
+#           type: object
+#           properties:
+#             delta: {type: integer, description: "Amount to add (can be negative)"}
+#     responses:
+#       200:
+#         description: Updated item with new quantity
+#       404:
+#         description: Not found
+#     """
+#     data = request.json or {}
+#     delta = data.get('delta')
+#     if not isinstance(delta, int):
+#         return jsonify({'msg': 'delta must be integer'}), 400
+#     item = WarehouseItem.query.get_or_404(item_id)
+#     db.session.execute(
+#         db.text("UPDATE warehouse_items SET quantity = quantity + :delta WHERE id = :id"),
+#         {'delta': delta, 'id': item_id}
+#     )
+#     db.session.commit()
+#     db.session.refresh(item)
+#     return jsonify(item.to_dict())
+
+
+@item_bp.route('/<int:item_id>/increment', methods=['POST'])
+@jwt_required()
+def increment_item_quantity(item_id):
+    """Increment quantity of a warehouse item via event sourcing."""
+    data = request.json or {}
+    delta = data.get('delta')
+
+    if not isinstance(delta, int):
+        return jsonify({'msg': 'delta must be integer'}), 400
+
+    # # Kiểm tra item tồn tại
+   
+
+    # Append event stream thay vì update thẳng
+    event_payload = {
+        "id": item_id,
+        "delta": delta,
+    }
+    event = append_event(f"warehouse_item:{item_id}", "WarehouseItemIncremented", event_payload)
+
+    # Trả về kết quả mới nhất từ SQL (projection đã được apply)
+    item = WarehouseItem.query.get_or_404(item_id)
+    db.session.refresh(item)
+    return jsonify({
+        "item": item.to_dict(),
+        "event": {
+            "stream": event["stream"],
+            "version": event["version"],
+            "type": event["type"],
+            "ts": event["ts"].isoformat(),
+        },
+    })

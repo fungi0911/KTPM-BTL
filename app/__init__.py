@@ -1,16 +1,26 @@
 from flask import Flask, request
 from flasgger import Swagger
 from flask_jwt_extended import verify_jwt_in_request, exceptions
-from .extensions import db, jwt
+from .extensions import db, jwt, mongo_client
 from .config import Config
 from .routes import register_routes
+from app.event_store import event_store
 
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
-
+    
     db.init_app(app)
     jwt.init_app(app)
+
+    global mongo_client
+    if mongo_client is None:
+        from pymongo import MongoClient
+        mongo_client = MongoClient(app.config.get("MONGO_URI"))
+ 
+        mongo_client.admin.command('ping')
+        event_store.mongo_client = mongo_client
+        event_store.init_event_store()
 
     @app.before_request
     def check_jwt():
