@@ -143,4 +143,4 @@ def delete_product(product_id):
     product = Product.query.get_or_404(product_id)
     db.session.delete(product)
     db.session.commit()
-    return '', 204
+    return jsonify({'status': 'deleted', 'product_id': product_id}), 200

@@ -144,4 +144,4 @@ def delete_warehouse(warehouse_id):
     w = Warehouse.query.get_or_404(warehouse_id)
     db.session.delete(w)
     db.session.commit()
-    return '', 204
+    return jsonify({'status': 'deleted', 'warehouse_id': warehouse_id}), 200

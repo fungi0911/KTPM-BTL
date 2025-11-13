@@ -79,8 +79,28 @@ def append_event(stream: str, event_type: str, payload: Dict[str, Any]) -> Dict[
         "ts": datetime.utcnow(),
     }
     events.insert_one(doc)
-    _apply_projection(event_type, payload)
     return doc
+
+def apply_events_for_stream(stream: str):
+    db = _db()
+    coll = db[ITEM_COLL]
+    item_id = int(stream.split(":")[1])
+
+    # lấy version đã apply gần nhất
+    last_applied = sql_db.session.execute(
+        sql_db.text("SELECT version FROM warehouse_items WHERE id = :id"),
+        {'id': item_id}
+    ).scalar() or 0
+
+    events = coll.find({"stream": stream, "version": {"$gt": last_applied}}).sort("version", 1)
+
+    for ev in events:
+        _apply_projection(ev["type"], ev["payload"])
+        sql_db.session.execute(
+            sql_db.text("UPDATE warehouse_items SET version = :v WHERE id = :id"),
+            {'v': ev["version"], 'id': item_id}
+        )
+        sql_db.session.commit()
 
 
 def _apply_projection(event_type: str, payload: Dict[str, Any]):
@@ -98,7 +118,6 @@ def _on_item_decremented(p: Dict[str, Any]):
         {'delta': delta, 'id': item_id}
     )
     sql_db.session.commit()
-
 
 
 def _on_item_incremented(p: Dict[str, Any]):

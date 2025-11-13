@@ -1,4 +1,5 @@
-from flask import Flask, request
+from flask import Flask, request, g, json
+import time
 from flasgger import Swagger
 from flask_jwt_extended import verify_jwt_in_request, exceptions
 from pymongo import MongoClient
@@ -27,7 +28,9 @@ def create_app():
             print(f"Failed to connect to MongoDB: {e}")
 
     @app.before_request
-    def check_jwt():
+    def start_and_check_jwt():
+        # Start timer for response time measurement
+        g._rt_start = time.perf_counter()
         allowed_paths = [
             "/apidocs",
             "/flasgger_static",
@@ -41,6 +44,35 @@ def create_app():
             verify_jwt_in_request()
         except exceptions.NoAuthorizationError:
             return {"msg": "Missing or invalid token"}, 401
+
+    @app.after_request
+    def add_response_time(resp):
+        # Skip swagger UI and static
+        if request.path.startswith('/apidocs') or request.path.startswith('/flasgger_static'):
+            return resp
+        try:
+            start = getattr(g, '_rt_start', None)
+            if start is None:
+                return resp
+            content_type = resp.headers.get('Content-Type', '')
+            if 'application/json' not in content_type:
+                return resp
+            if resp.status_code == 204:
+                return resp
+            elapsed_ms = (time.perf_counter() - start) * 1000.0
+            parsed = resp.get_json(silent=True)
+            # Wrap non-dict JSON (list, number, string, None)
+            if isinstance(parsed, dict):
+                envelope = parsed
+            else:
+                envelope = {'data': parsed}
+            if 'response_time_ms' not in envelope:
+                envelope['response_time_ms'] = round(elapsed_ms, 2)
+            resp.set_data(json.dumps(envelope, ensure_ascii=False))
+            resp.headers['Content-Type'] = 'application/json'
+            return resp
+        except Exception:
+            return resp
 
 
     swagger_template = {
