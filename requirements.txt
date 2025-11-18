@@ -13,6 +13,14 @@ flasgger
 # Fake data generation for seeding
 Faker
 
+Flask-Limiter
+
+matplotlib
+
+redis
+
+celery
+
 # (Optional) If you later use environment variables from a .env file, uncomment:
 # python-dotenv
 

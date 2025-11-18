@@ -1,11 +1,12 @@
 from flask import Blueprint, request, jsonify
 from flask_jwt_extended import create_access_token
 from ..models.user import User
-from ..extensions import db
+from ..extensions import db, limiter
 
 auth_bp = Blueprint("auth", __name__, url_prefix="/auth")
 
 @auth_bp.route("/register", methods=["POST"])
+@limiter.limit("10 per minute")
 def register():
     """Create a user
     ---
@@ -36,6 +37,7 @@ def register():
     return jsonify(user.to_dict()), 201
 
 @auth_bp.route("/login", methods=["POST"])
+@limiter.limit("10 per minute")
 def login():
     """Login
     ---
