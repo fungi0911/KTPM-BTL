@@ -2,11 +2,12 @@ from flask import Blueprint, request, jsonify
 from flask_jwt_extended import jwt_required
 from ..models.warehouse import Warehouse
 from ..models.warehouse_item import WarehouseItem
-from ..extensions import db
+from ..extensions import db, limiter
 
 warehouse_bp = Blueprint("warehouse", __name__, url_prefix="/warehouses")
 
 @warehouse_bp.route('/', methods=['GET'])
+@limiter.limit("10 per minute")
 def get_warehouses():
     """Get all warehouses
     ---
@@ -20,6 +21,7 @@ def get_warehouses():
     return jsonify([w.to_dict() for w in warehouses])
 
 @warehouse_bp.route('/', methods=['POST'])
+@limiter.limit("10 per minute")
 @jwt_required()
 def create_warehouse():
     """Create a new warehouse
@@ -45,6 +47,7 @@ def create_warehouse():
     return jsonify(warehouse.to_dict()), 201
 
 @warehouse_bp.route('/<int:warehouse_id>', methods=['GET'])
+@limiter.limit("10 per minute")
 def get_warehouse(warehouse_id):
     """Get warehouse by ID
     ---
@@ -65,6 +68,7 @@ def get_warehouse(warehouse_id):
     return jsonify(w.to_dict())
 
 @warehouse_bp.route('/<int:warehouse_id>/items', methods=['GET'])
+@limiter.limit("10 per minute")
 def get_items_for_warehouse(warehouse_id):
     """List items in a specific warehouse with optional product filter
     ---
@@ -93,6 +97,7 @@ def get_items_for_warehouse(warehouse_id):
     return jsonify([i.to_dict() for i in items])
 
 @warehouse_bp.route('/<int:warehouse_id>', methods=['PUT'])
+@limiter.limit("10 per minute")
 @jwt_required()
 def update_warehouse(warehouse_id):
     """Update warehouse
@@ -124,6 +129,7 @@ def update_warehouse(warehouse_id):
     return jsonify(w.to_dict())
 
 @warehouse_bp.route('/<int:warehouse_id>', methods=['DELETE'])
+@limiter.limit("10 per minute")
 @jwt_required()
 def delete_warehouse(warehouse_id):
     """Delete warehouse

@@ -3,11 +3,12 @@ from flask_jwt_extended import jwt_required
 from ..models.warehouse_item import WarehouseItem
 from ..models.product import Product
 from ..models.warehouse import Warehouse
-from ..extensions import db
+from ..extensions import db, limiter
 
 item_bp = Blueprint("item", __name__, url_prefix="/warehouse_items")
 
 @item_bp.route('/', methods=['GET'])
+@limiter.limit("10 per minute")
 def get_warehouse_items():
     """Get all warehouse items
     ---
@@ -21,6 +22,7 @@ def get_warehouse_items():
     return jsonify([i.to_dict() for i in items])
 
 @item_bp.route('/search', methods=['GET'])
+@limiter.limit("10 per minute")
 def search_items():
     """Search warehouse items with filters & pagination
     ---
@@ -86,6 +88,7 @@ def search_items():
     })
 
 @item_bp.route('/stats/products', methods=['GET'])
+@limiter.limit("10 per minute")
 def product_stock_stats():
     """Aggregate total quantity per product across all warehouses
     ---
@@ -108,6 +111,7 @@ def product_stock_stats():
     ])
 
 @item_bp.route('/stats/warehouses', methods=['GET'])
+@limiter.limit("10 per minute")
 def warehouse_stock_stats():
     """Aggregate total quantity per warehouse
     ---
@@ -129,6 +133,7 @@ def warehouse_stock_stats():
     ])
 
 @item_bp.route('/', methods=['POST'])
+@limiter.limit("10 per minute")
 @jwt_required()
 def create_warehouse_item():
     """Add product to warehouse
@@ -156,6 +161,7 @@ def create_warehouse_item():
     return jsonify(item.to_dict()), 201
 
 @item_bp.route('/<int:item_id>', methods=['GET'])
+@limiter.limit("10 per minute")
 def get_warehouse_item(item_id):
     """Get warehouse item by ID
     ---
@@ -176,6 +182,7 @@ def get_warehouse_item(item_id):
     return jsonify(item.to_dict())
 
 @item_bp.route('/<int:item_id>', methods=['PUT'])
+@limiter.limit("10 per minute")
 @jwt_required()
 def update_warehouse_item(item_id):
     """Update warehouse item (quantity or reassignment)
@@ -213,6 +220,7 @@ def update_warehouse_item(item_id):
     return jsonify(item.to_dict())
 
 @item_bp.route('/<int:item_id>', methods=['DELETE'])
+@limiter.limit("10 per minute")
 @jwt_required()
 def delete_warehouse_item(item_id):
     """Delete warehouse item
