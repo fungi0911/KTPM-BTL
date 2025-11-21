@@ -33,7 +33,9 @@ def mock_price(product_id: int):
     if mode == "flaky" and random.random() < fail_rate:
         return jsonify({"msg": "Transient upstream error"}), 502
 
-    price = round(random.uniform(10, 100), 2)
+    # Để giá ổn định theo product_id, dùng random với seed cố định theo ID
+    rng = random.Random(product_id)
+    price = round(rng.uniform(10, 100), 2)
     return jsonify({
         "product_id": product_id,
         "price": price,

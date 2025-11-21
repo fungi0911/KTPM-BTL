@@ -4,10 +4,15 @@ from ..models.warehouse_item import WarehouseItem
 from ..models.product import Product
 from ..models.warehouse import Warehouse
 from ..extensions import db
-from ..services.vendor_api import get_vendor_client
-from ..services.vendor_api import CircuitBreakerOpen
+from ..services.vendor_api import (
+    CircuitBreakerOpen,
+    UpstreamClientError,
+    VendorRetryExceeded,
+    get_vendor_client,
+)
 
 item_bp = Blueprint("item", __name__, url_prefix="/warehouse_items")
+
 
 @item_bp.route('/', methods=['GET'])
 def get_warehouse_items():
@@ -21,6 +26,7 @@ def get_warehouse_items():
     """
     items = WarehouseItem.query.all()
     return jsonify([i.to_dict() for i in items])
+
 
 @item_bp.route('/search', methods=['GET'])
 def search_items():
@@ -52,7 +58,7 @@ def search_items():
         description: Filtered list with metadata
     """
     q = WarehouseItem.query
-    # filters
+
     def as_int(name):
         val = request.args.get(name)
         if val is None:
@@ -87,6 +93,7 @@ def search_items():
         'items': [i.to_dict() for i in items]
     })
 
+
 @item_bp.route('/stats/products', methods=['GET'])
 def product_stock_stats():
     """Aggregate total quantity per product across all warehouses
@@ -103,11 +110,11 @@ def product_stock_stats():
             db.func.sum(WarehouseItem.quantity).label('total_qty')
         ).group_by(WarehouseItem.product_id)
     ).all()
-    # fetch product names map
     prod_map = {p.id: p.name for p in Product.query.filter(Product.id.in_([r[0] for r in rows])).all()}
     return jsonify([
         {'product_id': r[0], 'product': prod_map.get(r[0]), 'total_quantity': r[1]} for r in rows
     ])
+
 
 @item_bp.route('/stats/warehouses', methods=['GET'])
 def warehouse_stock_stats():
@@ -129,6 +136,7 @@ def warehouse_stock_stats():
     return jsonify([
         {'warehouse_id': r[0], 'warehouse': wh_map.get(r[0]), 'total_quantity': r[1]} for r in rows
     ])
+
 
 @item_bp.route('/', methods=['POST'])
 @jwt_required()
@@ -157,6 +165,7 @@ def create_warehouse_item():
     db.session.commit()
     return jsonify(item.to_dict()), 201
 
+
 @item_bp.route('/<int:item_id>', methods=['GET'])
 def get_warehouse_item(item_id):
     """Get warehouse item by ID
@@ -176,6 +185,7 @@ def get_warehouse_item(item_id):
     """
     item = WarehouseItem.query.get_or_404(item_id)
     return jsonify(item.to_dict())
+
 
 @item_bp.route('/<int:item_id>', methods=['PUT'])
 @jwt_required()
@@ -214,6 +224,7 @@ def update_warehouse_item(item_id):
     db.session.commit()
     return jsonify(item.to_dict())
 
+
 @item_bp.route('/<int:item_id>', methods=['DELETE'])
 @jwt_required()
 def delete_warehouse_item(item_id):
@@ -236,7 +247,8 @@ def delete_warehouse_item(item_id):
     db.session.delete(item)
     db.session.commit()
     return '', 204
-  
+
+
 @item_bp.route('/vendor_price/<int:product_id>', methods=['GET'])
 def get_vendor_price(product_id: int):
     """Fetch current vendor price for a product via ACL (Circuit Breaker + Retry)
@@ -267,12 +279,46 @@ def get_vendor_price(product_id: int):
         description: Circuit open / vendor unavailable
     """
     client = get_vendor_client()
-    # chỉ cho phép các tham số thử nghiệm
     passthrough = {k: v for k, v in request.args.items() if k in ("mode", "fail_rate", "delay_ms")}
     try:
-        data = client.get_price(product_id, params=passthrough or None)
-        return jsonify(data)
+        data, attempts = client.get_price(product_id, params=passthrough or None)
+        return jsonify({
+            "data": data,
+            "attempts": attempts,
+            "breaker_state": client.breaker.snapshot(),
+        })
     except CircuitBreakerOpen:
-        return jsonify({"msg": "Circuit open: vendor temporarily disabled"}), 503
+        return jsonify({
+            "msg": "Circuit open: vendor temporarily disabled",
+            "breaker_state": client.breaker.snapshot(),
+        }), 503
+    except UpstreamClientError as e:
+        return jsonify({
+            "msg": "Vendor client error",
+            "status": e.status_code,
+            "detail": e.payload,
+            "breaker_state": client.breaker.snapshot(),
+        }), e.status_code
+    except VendorRetryExceeded as e:
+        return jsonify({
+            "msg": "Vendor error",
+            "attempts": getattr(e, "attempts", None),
+            "last_status": getattr(e, "last_status", None),
+            "breaker_state": client.breaker.snapshot(),
+        }), 502
     except Exception as e:
-        return jsonify({"msg": "Vendor error", "detail": str(e)}), 502
+        return jsonify({
+            "msg": "Vendor error",
+            "detail": str(e),
+            "breaker_state": client.breaker.snapshot(),
+        }), 502
+
+
+@item_bp.route('/vendor_state', methods=['GET'])
+def get_vendor_state():
+    """Expose circuit breaker state and config for vendor client (debug/demo)."""
+    client = get_vendor_client()
+    return jsonify({
+        "breaker": client.breaker.snapshot(),
+        "config": client.config_snapshot(),
+    })
