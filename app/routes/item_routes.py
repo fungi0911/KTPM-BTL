@@ -4,6 +4,8 @@ from ..models.warehouse_item import WarehouseItem
 from ..models.product import Product
 from ..models.warehouse import Warehouse
 from ..extensions import db
+from ..services.vendor_api import get_vendor_client
+from ..services.vendor_api import CircuitBreakerOpen
 
 item_bp = Blueprint("item", __name__, url_prefix="/warehouse_items")
 
@@ -234,3 +236,43 @@ def delete_warehouse_item(item_id):
     db.session.delete(item)
     db.session.commit()
     return '', 204
+  
+@item_bp.route('/vendor_price/<int:product_id>', methods=['GET'])
+def get_vendor_price(product_id: int):
+    """Fetch current vendor price for a product via ACL (Circuit Breaker + Retry)
+    ---
+    tags:
+      - Warehouse Items
+    parameters:
+      - name: product_id
+        in: path
+        required: true
+        type: integer
+      - name: mode
+        in: query
+        type: string
+        enum: [down, flaky, ok]
+      - name: fail_rate
+        in: query
+        type: number
+      - name: delay_ms
+        in: query
+        type: integer
+    responses:
+      200:
+        description: Vendor price payload
+      502:
+        description: Vendor error
+      503:
+        description: Circuit open / vendor unavailable
+    """
+    client = get_vendor_client()
+    # chỉ cho phép các tham số thử nghiệm
+    passthrough = {k: v for k, v in request.args.items() if k in ("mode", "fail_rate", "delay_ms")}
+    try:
+        data = client.get_price(product_id, params=passthrough or None)
+        return jsonify(data)
+    except CircuitBreakerOpen:
+        return jsonify({"msg": "Circuit open: vendor temporarily disabled"}), 503
+    except Exception as e:
+        return jsonify({"msg": "Vendor error", "detail": str(e)}), 502
