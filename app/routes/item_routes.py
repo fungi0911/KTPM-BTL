@@ -1,11 +1,17 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required
+
+from app.event_store.event_store import append_event, apply_events_for_stream
 from ..models.warehouse_item import WarehouseItem
 from ..models.product import Product
 from ..models.warehouse import Warehouse
 from ..extensions import db
+from app.repositories import WarehouseItemRepository
 
 item_bp = Blueprint("item", __name__, url_prefix="/warehouse_items")
+
+# repository
+item_repo = WarehouseItemRepository(db.session)
 
 @item_bp.route('/', methods=['GET'])
 def get_warehouse_items():
@@ -17,7 +23,9 @@ def get_warehouse_items():
       200:
         description: List of warehouse items with warehouse & product info
     """
-    items = WarehouseItem.query.all()
+    stream = f"warehouse_item"
+    apply_events_for_stream(stream)
+    items = item_repo.list()
     return jsonify([i.to_dict() for i in items])
 
 @item_bp.route('/search', methods=['GET'])
@@ -95,16 +103,10 @@ def product_stock_stats():
       200:
         description: List of product stock totals
     """
-    rows = db.session.execute(
-        db.select(
-            WarehouseItem.product_id,
-            db.func.sum(WarehouseItem.quantity).label('total_qty')
-        ).group_by(WarehouseItem.product_id)
-    ).all()
-    # fetch product names map
-    prod_map = {p.id: p.name for p in Product.query.filter(Product.id.in_([r[0] for r in rows])).all()}
+    rows = item_repo.product_stock_stats()
+    prod_map = {p.id: p.name for p in Product.query.filter(Product.id.in_([r['product_id'] for r in rows])).all()} if rows else {}
     return jsonify([
-        {'product_id': r[0], 'product': prod_map.get(r[0]), 'total_quantity': r[1]} for r in rows
+      {'product_id': r['product_id'], 'product': prod_map.get(r['product_id']), 'total_quantity': r['total_quantity']} for r in rows
     ])
 
 @item_bp.route('/stats/warehouses', methods=['GET'])
@@ -117,15 +119,10 @@ def warehouse_stock_stats():
       200:
         description: List of warehouse stock totals
     """
-    rows = db.session.execute(
-        db.select(
-            WarehouseItem.warehouse_id,
-            db.func.sum(WarehouseItem.quantity).label('total_qty')
-        ).group_by(WarehouseItem.warehouse_id)
-    ).all()
-    wh_map = {w.id: w.name for w in Warehouse.query.filter(Warehouse.id.in_([r[0] for r in rows])).all()}
+    rows = item_repo.warehouse_stock_stats()
+    wh_map = {w.id: w.name for w in Warehouse.query.filter(Warehouse.id.in_([r['warehouse_id'] for r in rows])).all()} if rows else {}
     return jsonify([
-        {'warehouse_id': r[0], 'warehouse': wh_map.get(r[0]), 'total_quantity': r[1]} for r in rows
+      {'warehouse_id': r['warehouse_id'], 'warehouse': wh_map.get(r['warehouse_id']), 'total_quantity': r['total_quantity']} for r in rows
     ])
 
 @item_bp.route('/', methods=['POST'])
@@ -150,9 +147,7 @@ def create_warehouse_item():
         description: Warehouse item created successfully
     """
     data = request.json
-    item = WarehouseItem(**data)
-    db.session.add(item)
-    db.session.commit()
+    item = item_repo.create(data)
     return jsonify(item.to_dict()), 201
 
 @item_bp.route('/<int:item_id>', methods=['GET'])
@@ -172,7 +167,11 @@ def get_warehouse_item(item_id):
       404:
         description: Not found
     """
-    item = WarehouseItem.query.get_or_404(item_id)
+    stream = f"warehouse_item:{item_id}"
+    apply_events_for_stream(stream)
+    item = item_repo.get_by_id(item_id)
+    if not item:
+      abort(404)
     return jsonify(item.to_dict())
 
 @item_bp.route('/<int:item_id>', methods=['PUT'])
@@ -201,16 +200,11 @@ def update_warehouse_item(item_id):
       404:
         description: Not found
     """
-    item = WarehouseItem.query.get_or_404(item_id)
     data = request.json or {}
-    if 'quantity' in data:
-        item.quantity = data['quantity']
-    if 'product_id' in data:
-        item.product_id = data['product_id']
-    if 'warehouse_id' in data:
-        item.warehouse_id = data['warehouse_id']
-    db.session.commit()
-    return jsonify(item.to_dict())
+    updated = item_repo.update(item_id, data)
+    if not updated:
+      abort(404)
+    return jsonify(updated.to_dict())
 
 @item_bp.route('/<int:item_id>', methods=['DELETE'])
 @jwt_required()
@@ -230,7 +224,106 @@ def delete_warehouse_item(item_id):
       404:
         description: Not found
     """
-    item = WarehouseItem.query.get_or_404(item_id)
-    db.session.delete(item)
+    ok = item_repo.delete(item_id)
+    if not ok:
+      abort(404)
+    return jsonify({'status': 'deleted', 'item_id': item_id}), 200
+
+@item_bp.route('/<int:item_id>/increment', methods=['POST'])
+@jwt_required()
+def increment_item_quantity(item_id):
+    """Atomically increment quantity of a warehouse item.
+    ---
+    tags:
+      - Warehouse Items
+    parameters:
+      - name: item_id
+        in: path
+        required: true
+        type: integer
+      - name: body
+        in: body
+        required: true
+        schema:
+          type: object
+          properties:
+            delta: {type: integer, description: "Amount to add (can be negative)"}
+    responses:
+      200:
+        description: Updated item with new quantity
+      404:
+        description: Not found
+    """
+    data = request.json or {}
+    delta = data.get('delta')
+    if not isinstance(delta, int):
+      return jsonify({'msg': 'delta must be integer'}), 400
+    # perform atomic update via SQL then refresh cached projection
+    row = db.session.execute(
+      db.text("UPDATE warehouse_items SET quantity = quantity + :delta WHERE id = :id RETURNING id"),
+      {'delta': delta, 'id': item_id}
+    ).fetchone()
+    if not row:
+      abort(404)
     db.session.commit()
-    return '', 204
+    # invalidate cache for this item and stats
+    from app.utils.cache import delete_key, _make_key
+    delete_key(_make_key("warehouse_item", item_id))
+    delete_key("warehouse_items:list")
+    delete_key("stats:products")
+    delete_key("stats:warehouses")
+    item = item_repo.get_by_id(item_id)
+    return jsonify(item.to_dict())
+
+
+# @item_bp.route('/<int:item_id>/increment', methods=['POST'])
+# @jwt_required()
+# def increment_item_quantity(item_id):
+#     """Atomically increment quantity of a warehouse item.
+#     ---
+#     tags:
+#       - Warehouse Items
+#     parameters:
+#       - name: item_id
+#         in: path
+#         required: true
+#         type: integer
+#       - name: body
+#         in: body
+#         required: true
+#         schema:
+#           type: object
+#           properties:
+#             delta: {type: integer, description: "Amount to add (can be negative)"}
+#     responses:
+#       200:
+#         description: Updated item with new quantity
+#       404:
+#         description: Not found
+#     """
+
+#     data = request.json or {}
+#     delta = data.get('delta')
+
+#     if not isinstance(delta, int):
+#         return jsonify({'msg': 'delta must be integer'}), 400
+
+#     # # Kiểm tra item tồn tại
+   
+
+#     # Append event stream thay vì update thẳng
+#     event_payload = {
+#         "id": item_id,
+#         "delta": delta,
+#     }
+#     event = append_event(f"warehouse_item:{item_id}", "WarehouseItemIncremented", event_payload)
+
+#     # Trả về kết quả mới nhất từ SQL (projection đã được apply)
+#     return jsonify({
+#         "event": {
+#             "stream": event["stream"],
+#             "version": event["version"],
+#             "type": event["type"],
+#             "ts": event["ts"].isoformat(),
+#         },
+#     })
