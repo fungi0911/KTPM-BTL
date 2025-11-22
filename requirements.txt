@@ -12,6 +12,11 @@ flasgger
 
 # Fake data generation for seeding
 Faker
+requests
+PyMongo
+
+# Redis client for caching
+redis
 
 # (Optional) If you later use environment variables from a .env file, uncomment:
 # python-dotenv
