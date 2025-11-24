@@ -1,2 +1,4 @@
 inventory.db
 fastapi_app
+*.db
+*.pyc
