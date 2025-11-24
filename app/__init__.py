@@ -11,7 +11,12 @@ from app.event_store import event_store
 def create_app():
     app = Flask(__name__)
     app.config.from_object(Config)
-    
+    # app.config.setdefault('SQLALCHEMY_ENGINE_OPTIONS', {
+    #     'pool_size': 32,
+    #     'max_overflow': 64,
+    #     'pool_pre_ping': True,
+    # })
+
     db.init_app(app)
     jwt.init_app(app)
 

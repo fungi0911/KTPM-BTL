@@ -1,9 +1,10 @@
-
 from __future__ import annotations
 from datetime import datetime
 from typing import Any, Dict, Iterable
 from pymongo.collection import Collection
 from pymongo import ReturnDocument
+import threading, time
+from flask import current_app
 
 from ..extensions import mongo_client, db as sql_db
 from ..config import Config
@@ -21,8 +22,6 @@ def _db():
 
 def init_event_store():
     db = _db()
-
-
 
     # --- Events cho từng loại ---
     # Item events: lookup nhanh theo item_id (stream có thể là item:<id>)

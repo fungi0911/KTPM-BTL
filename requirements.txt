@@ -1,22 +1,11 @@
-# Core web framework
-Flask
-
-# ORM / database integration (user already installed pinned version)
-Flask-SQLAlchemy==3.1.1
-
-# JWT auth
-flask-jwt-extended
-
-# Swagger/OpenAPI docs
-flasgger
-
-# Fake data generation for seeding
-Faker
-requests
+fastapi
+uvicorn
+SQLAlchemy
+PyMySQL
+python-jose
 PyMongo
-
-# (Optional) If you later use environment variables from a .env file, uncomment:
-# python-dotenv
-
-# (Optional) For production WSGI server instead of Flask built-in dev server:
-# gunicorn
+requests
+Faker
+# Optional: load env vars
+python-dotenv
+pydantic-settings
