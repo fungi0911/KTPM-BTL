@@ -6,6 +6,14 @@ python-jose
 PyMongo
 requests
 Faker
-# Optional: load env vars
-python-dotenv
-pydantic-settings
+requests
+PyMongo
+
+# Redis client for caching
+redis
+
+# (Optional) If you later use environment variables from a .env file, uncomment:
+# python-dotenv
+
+# (Optional) For production WSGI server instead of Flask built-in dev server:
+# gunicorn
