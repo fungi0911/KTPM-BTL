@@ -18,7 +18,7 @@ class WarehouseItem(db.Model):
             "product_id": self.product_id,
             "warehouse_id": self.warehouse_id,
             "quantity": self.quantity,
-            "product": getattr(self.product, "name", None),
-            "warehouse": getattr(self.warehouse, "name", None),
+            "product_name": getattr(self.product, "name", None),
+            "warehouse_name": getattr(self.warehouse, "name", None),
             "version": self.version,
         }
