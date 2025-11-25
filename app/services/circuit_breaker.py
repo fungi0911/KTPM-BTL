@@ -1,6 +1,8 @@
 import logging
-import threading
 import time
+from typing import Callable, Iterable, Type
+
+import pybreaker
 
 logger = logging.getLogger(__name__)
 
@@ -12,103 +14,83 @@ class CircuitBreakerOpen(Exception):
         super().__init__(message)
         self.message = message
 
+
+class _StateListener(pybreaker.CircuitBreakerListener):
+    """Listener to track state changes for snapshots/logging."""
+
+    def __init__(self, owner: "CircuitBreaker"):
+        self.owner = owner
+
+    def state_change(self, cb, old_state, new_state):
+        now = time.monotonic()
+        if new_state.name == "open":
+            self.owner._opened_at = now
+        elif new_state.name == "closed":
+            self.owner._opened_at = 0.0
+        payload = self.owner._snapshot()
+        payload["reason"] = f"{old_state.name}->{new_state.name}"
+        logger.warning("Circuit '%s' -> %s", self.owner.name, payload["reason"])
+        if self.owner._on_state_change:
+            try:
+                self.owner._on_state_change(payload)
+            except Exception:
+                logger.exception("on_state_change callback failed")
+
+
 class CircuitBreaker:
-    def __init__(self, failure_threshold=5, recovery_time=30.0, half_open_success_threshold=2, name="default", on_state_change=None):
+    """
+    Thin wrapper over pybreaker to keep a stable interface for the project.
+    """
+
+    def __init__(
+        self,
+        failure_threshold: int = 5,
+        recovery_time: float = 30.0,
+        half_open_success_threshold: int = 1,
+        name: str = "default",
+        on_state_change=None,
+        exclude_exceptions: Iterable[Type[Exception]] = (),
+    ):
         self.name = name
         self.failure_threshold = int(failure_threshold)
         self.recovery_time = float(recovery_time)
+        # pybreaker closes after one success in half-open; keep the param for compatibility.
         self.half_open_success_threshold = int(half_open_success_threshold)
-        self._state = "closed"  # closed | open | half_open
-        self._failure_count = 0
-        self._success_count = 0
         self._opened_at = 0.0
-        self._lock = threading.Lock()
         self._on_state_change = on_state_change
+        self._excluded = tuple(exclude_exceptions or ())
+        self._listener = _StateListener(self)
+        self._breaker = pybreaker.CircuitBreaker(
+            fail_max=self.failure_threshold,
+            reset_timeout=self.recovery_time,
+            exclude=self._excluded,
+            listeners=[self._listener],
+            name=self.name,
+        )
 
     def state(self):
-        with self._lock:
-            return self._state
+        return str(self._breaker.current_state).lower()
 
-    def snapshot(self):
-        with self._lock:
-            return self._snapshot_locked()
-
-    def _snapshot_locked(self):
+    def _snapshot(self):
         now = time.monotonic()
+        state = self.state()
         return {
             "name": self.name,
-            "state": self._state,
-            "failure_count": self._failure_count,
-            "success_count": self._success_count,
+            "state": state,
+            "failure_count": getattr(self._breaker.fail_counter, "current", None),
+            "success_count": None,  # not tracked separately by pybreaker
             "failure_threshold": self.failure_threshold,
             "half_open_success_threshold": self.half_open_success_threshold,
             "recovery_time": self.recovery_time,
             "opened_at": self._opened_at,
-            "open_for": (now - self._opened_at) if self._state == "open" else 0.0,
+            "open_for": (now - self._opened_at) if state == "open" else 0.0,
         }
 
-    def _emit_state(self, new_state: str, reason: str = None):
-        payload = self._snapshot_locked()
-        payload["reason"] = reason
-        logger.warning("Circuit '%s' -> %s (%s)", self.name, new_state, reason or "state change")
-        if self._on_state_change:
-            try:
-                self._on_state_change(payload)
-            except Exception:
-                logger.exception("on_state_change callback failed")
+    def snapshot(self):
+        return self._snapshot()
 
-    def _open(self):
-        self._state = "open"
-        self._opened_at = time.monotonic()
-        self._failure_count = 0
-        self._success_count = 0
-        self._emit_state("open", "failure_threshold_reached")
-
-    def _close(self):
-        self._state = "closed"
-        self._opened_at = 0.0
-        self._failure_count = 0
-        self._success_count = 0
-        self._emit_state("closed", "recovered")
-
-    def _half_open(self):
-        self._state = "half_open"
-        self._success_count = 0
-        self._emit_state("half_open", "recovery_window_passed")
-
-    def _allow_request(self):
-        now = time.monotonic()
-        if self._state == "open":
-            if (now - self._opened_at) >= self.recovery_time:
-                self._half_open()
-                return True
-            return False
-        return True
-
-    def call(self, func, *args, ignore_exceptions=None, **kwargs):
-        ignore_exceptions = tuple(ignore_exceptions or ())
-        with self._lock:
-            if not self._allow_request():
-                raise CircuitBreakerOpen(f"Circuit '{self.name}' is open")
+    def call(self, func: Callable, *args, **kwargs):
         try:
-            result = func(*args, **kwargs)
-        except Exception as exc:
-            if ignore_exceptions and isinstance(exc, ignore_exceptions):
-                raise
-            with self._lock:
-                if self._state == "half_open":
-                    self._open()
-                else:
-                    self._failure_count += 1
-                    if self._failure_count >= self.failure_threshold:
-                        self._open()
-            raise
-        else:
-            with self._lock:
-                if self._state == "half_open":
-                    self._success_count += 1
-                    if self._success_count >= self.half_open_success_threshold:
-                        self._close()
-                elif self._state == "closed":
-                    self._failure_count = 0
-            return result
+            return self._breaker.call(func, *args, **kwargs)
+        except pybreaker.CircuitBreakerError:
+            raise CircuitBreakerOpen(f"Circuit '{self.name}' is open")

@@ -4,6 +4,7 @@ from ..models.warehouse_item import WarehouseItem
 from ..models.product import Product
 from ..models.warehouse import Warehouse
 from ..extensions import db
+from requests.exceptions import RequestException
 from ..services.vendor_api import (
     CircuitBreakerOpen,
     UpstreamClientError,
@@ -264,6 +265,11 @@ def get_vendor_price(product_id: int):
         in: query
         type: string
         enum: [down, flaky, ok]
+      - name: strategy
+        in: query
+        type: string
+        enum: [resilient, raw]
+        description: Use 'raw' to bypass retry/breaker for demo comparison
       - name: fail_rate
         in: query
         type: number
@@ -279,12 +285,18 @@ def get_vendor_price(product_id: int):
         description: Circuit open / vendor unavailable
     """
     client = get_vendor_client()
-    passthrough = {k: v for k, v in request.args.items() if k in ("mode", "fail_rate", "delay_ms")}
+    strategy = request.args.get("strategy", "resilient")
+    passthrough_keys = {"mode", "fail_rate", "delay_ms"}
+    passthrough = {k: v for k, v in request.args.items() if k in passthrough_keys}
     try:
-        data, attempts = client.get_price(product_id, params=passthrough or None)
+        if strategy == "raw":
+            data, attempts = client.get_price_raw(product_id, params=passthrough or None)
+        else:
+            data, attempts = client.get_price(product_id, params=passthrough or None)
         return jsonify({
             "data": data,
             "attempts": attempts,
+            "strategy": strategy,
             "breaker_state": client.breaker.snapshot(),
         })
     except CircuitBreakerOpen:
@@ -299,6 +311,13 @@ def get_vendor_price(product_id: int):
             "detail": e.payload,
             "breaker_state": client.breaker.snapshot(),
         }), e.status_code
+    except RequestException as e:
+        return jsonify({
+            "msg": "Vendor error (no resilience)",
+            "strategy": strategy,
+            "detail": str(e),
+            "breaker_state": client.breaker.snapshot(),
+        }), 502
     except VendorRetryExceeded as e:
         return jsonify({
             "msg": "Vendor error",

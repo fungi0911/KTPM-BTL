@@ -108,6 +108,7 @@ class VendorAPI:
             recovery_time=RECOVERY_TIME,
             half_open_success_threshold=HALF_OPEN_SUCC,
             name="vendor_api",
+            exclude_exceptions=(UpstreamClientError,),
         )
         self.session = requests.Session()
         adapter = HTTPAdapter(pool_connections=pool_maxsize, pool_maxsize=pool_maxsize, max_retries=0)
@@ -145,8 +146,11 @@ class VendorAPI:
             return self._perform_get(f"/prices/{product_id}", params=params)
         return self.breaker.call(
             lambda: self._call_with_retry(op),
-            ignore_exceptions=(UpstreamClientError,),
         )
+
+    def get_price_raw(self, product_id: int, params=None) -> Tuple[Dict[str, Any], int]:
+        """Call vendor once, without retry/circuit breaker (demo baseline)."""
+        return self._perform_get(f"/prices/{product_id}", params=params), 1
 
     def config_snapshot(self):
         return {
