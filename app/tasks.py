@@ -12,15 +12,14 @@ import matplotlib.pyplot as plt
 
 @celery.task
 @with_appcontext
-def generate_report(product_id):
+def generate_barchart(product_id):
     # with current_app.app_context():
-    items = WarehouseItem.query.filter_by(product_id=product_id).all()
+    items = WarehouseItem.query.with_entities(
+        WarehouseItem.warehouse_id, WarehouseItem.quantity
+    ).filter_by(product_id=product_id).all()
 
-    warehouses = []
-    quantities = []
-    for w_item in items:  # giả sử quan hệ one-to-many
-        warehouses.append(w_item.warehouse_id)  # tên kho
-        quantities.append(w_item.quantity)  # số lượng trong kho
+    warehouses, quantities = zip(*items) if items else ([], [])
+
     plt.figure(figsize=(10, 6))
     plt.bar(warehouses, quantities, color='skyblue')
     plt.xlabel("Warehouse")

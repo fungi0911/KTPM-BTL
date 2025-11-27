@@ -27,7 +27,7 @@ def create_app():
             "/apispec_1.json",
             "/auth/login",
             "/auth/register",
-            "/export"
+            "/report"
         ]
         if any(request.path.startswith(p) for p in allowed_paths):
             return

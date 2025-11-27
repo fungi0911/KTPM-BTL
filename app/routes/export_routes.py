@@ -4,13 +4,13 @@ from flask import Blueprint, jsonify, send_file, current_app
 
 from ..celery_app import celery
 
-from app.tasks import generate_report
+from app.tasks import generate_barchart
 
-export_bp = Blueprint("export", __name__, url_prefix="/export")
+export_bp = Blueprint("export", __name__, url_prefix="/report")
 
 
 @export_bp.route("/<int:product_id>", methods=["POST"])
-def export_report(product_id):
+def bar_chart(product_id):
     """
     Generate PDF quantity report for an product
     ---
@@ -35,7 +35,7 @@ def export_report(product_id):
     security:
       - BearerAuth: []
     """
-    task = generate_report.apply_async(args=[product_id])
+    task = generate_barchart.apply_async(args=[product_id])
 
     return {
         "task_id": task.id,
@@ -43,8 +43,8 @@ def export_report(product_id):
     }, 202
 
 
-@export_bp.route("/download/<task_id>", methods=["GET"])
-def download_report(task_id):
+@export_bp.route("/result/<task_id>", methods=["GET"])
+def download_barchart(task_id):
     """
     Download PDF quantity report for a product
     ---
