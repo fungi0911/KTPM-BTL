@@ -5,12 +5,8 @@ from ..models.product import Product
 from ..models.warehouse import Warehouse
 from ..extensions import db
 from requests.exceptions import RequestException
-from ..services.vendor_api import (
-    CircuitBreakerOpen,
-    UpstreamClientError,
-    VendorRetryExceeded,
-    get_vendor_client,
-)
+from ..services.resilience import CircuitOpenError, RetryExhaustedError
+from ..services.vendor_api import UpstreamClientError, get_vendor_client
 
 item_bp = Blueprint("item", __name__, url_prefix="/warehouse_items")
 
@@ -265,79 +261,99 @@ def get_vendor_price(product_id: int):
         in: query
         type: string
         enum: [down, flaky, ok]
+        description: Mock vendor behavior mode
       - name: strategy
         in: query
         type: string
         enum: [resilient, raw]
-        description: Use 'raw' to bypass retry/breaker for demo comparison
+        description: Use 'raw' to bypass resilience
       - name: fail_rate
         in: query
         type: number
+        description: Failure rate for flaky mode
       - name: delay_ms
         in: query
         type: integer
+        description: Artificial delay in ms
     responses:
       200:
-        description: Vendor price payload
+        description: Vendor price payload with metadata
+      400:
+        description: Client error (non-retryable)
       502:
-        description: Vendor error
+        description: Vendor error after retries
       503:
-        description: Circuit open / vendor unavailable
+        description: Circuit open
     """
     client = get_vendor_client()
     strategy = request.args.get("strategy", "resilient")
-    passthrough_keys = {"mode", "fail_rate", "delay_ms"}
-    passthrough = {k: v for k, v in request.args.items() if k in passthrough_keys}
+    
+    # Pass mock control params to vendor
+    passthrough = {
+        k: v for k, v in request.args.items() 
+        if k in {"mode", "fail_rate", "delay_ms"}
+    }
+    
     try:
         if strategy == "raw":
-            data, attempts = client.get_price_raw(product_id, params=passthrough or None)
+            data, attempts = client.get_price_raw(
+                product_id, 
+                params=passthrough or None
+            )
         else:
-            data, attempts = client.get_price(product_id, params=passthrough or None)
+            data, attempts = client.get_price(
+                product_id, 
+                params=passthrough or None
+            )
+        
         return jsonify({
             "data": data,
             "attempts": attempts,
             "strategy": strategy,
-            "breaker_state": client.breaker.snapshot(),
+            "state": client.snapshot(),
         })
-    except CircuitBreakerOpen:
+    
+    except CircuitOpenError as e:
         return jsonify({
             "msg": "Circuit open: vendor temporarily disabled",
-            "breaker_state": client.breaker.snapshot(),
+            "breaker_name": e.breaker_name,
+            "state": e.breaker_state,
         }), 503
+    
     except UpstreamClientError as e:
         return jsonify({
-            "msg": "Vendor client error",
+            "msg": "Vendor client error (non-retryable)",
             "status": e.status_code,
             "detail": e.payload,
-            "breaker_state": client.breaker.snapshot(),
+            "state": client.snapshot(),
         }), e.status_code
+    
+    except RetryExhaustedError as e:
+        return jsonify({
+            "msg": "Vendor error after retries",
+            "attempts": e.attempts,
+            "last_error": str(e.last_exception),
+            "state": client.snapshot(),
+        }), 502
+    
     except RequestException as e:
+        # Should only happen in raw mode
         return jsonify({
-            "msg": "Vendor error (no resilience)",
-            "strategy": strategy,
+            "msg": "Network error (no resilience)",
             "detail": str(e),
-            "breaker_state": client.breaker.snapshot(),
-        }), 502
-    except VendorRetryExceeded as e:
-        return jsonify({
-            "msg": "Vendor error",
-            "attempts": getattr(e, "attempts", None),
-            "last_status": getattr(e, "last_status", None),
-            "breaker_state": client.breaker.snapshot(),
-        }), 502
-    except Exception as e:
-        return jsonify({
-            "msg": "Vendor error",
-            "detail": str(e),
-            "breaker_state": client.breaker.snapshot(),
+            "state": client.snapshot(),
         }), 502
 
 
 @item_bp.route('/vendor_state', methods=['GET'])
 def get_vendor_state():
-    """Expose circuit breaker state and config for vendor client (debug/demo)."""
+    """Expose circuit breaker state and metrics.
+    ---
+    tags:
+      - Warehouse Items
+    responses:
+      200:
+        description: Current vendor client state
+    """
     client = get_vendor_client()
-    return jsonify({
-        "breaker": client.breaker.snapshot(),
-        "config": client.config_snapshot(),
-    })
+    return jsonify(client.snapshot())
