@@ -49,17 +49,35 @@ class ProductRepository(BaseRepository):
         return p
 
     def update(self, id: int, data: dict) -> Optional[Product]:
-        p = self.get_by_id(id)
-        if not p:
+        from app.utils.occ import occ_execute
+        read_sql = "SELECT COALESCE(version,0) AS version FROM products WHERE id = :id"
+        read_params = { 'id': id }
+
+        def build_update(expected_version: int):
+            set_parts = []
+            params = { 'id': id, 'expected_version': expected_version, 'new_version': expected_version + 1 }
+            if 'name' in data and data['name'] is not None:
+                set_parts.append('name = :name')
+                params['name'] = data['name']
+            if 'price' in data and data['price'] is not None:
+                set_parts.append('price = :price')
+                params['price'] = float(data['price'])
+            # bump version
+            set_parts.append('version = :new_version')
+            set_clause = ', '.join(set_parts) if set_parts else 'version = :new_version'
+            update_sql = f"""
+                UPDATE products
+                SET {set_clause}
+                WHERE id = :id AND (version = :expected_version OR version IS NULL)
+            """
+            return update_sql, params
+
+        ok = occ_execute(read_sql, read_params, build_update, session=self.session, max_retries=5, commit=True)
+        if not ok:
             return None
-        for k, v in data.items():
-            if hasattr(p, k):
-                setattr(p, k, v)
-        self.session.commit()
-        # invalidate caches
         delete_key(PRODUCT_LIST_KEY)
         delete_key(_make_key("product", id))
-        return p
+        return self.session.get(Product, id)
 
     def delete(self, id: int) -> bool:
         p = self.get_by_id(id)

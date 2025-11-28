@@ -1,4 +1,11 @@
-inventory.db
-fastapi_app
 *.db
-*.pyc
+*.sqlite3
+inventory.db
+
+__pycache__/
+**/__pycache__/
+*/__pycache__/
+*.py[cod]
+*$py.class
+
+fastapi_app/

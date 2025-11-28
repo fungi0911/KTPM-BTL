@@ -7,6 +7,7 @@ from ..models.product import Product
 from ..models.warehouse import Warehouse
 from ..extensions import db
 from app.repositories import WarehouseItemRepository
+from app.utils.occ import occ_execute, occ_batch_update_quantity
 
 item_bp = Blueprint("item", __name__, url_prefix="/warehouse_items")
 
@@ -23,8 +24,8 @@ def get_warehouse_items():
       200:
         description: List of warehouse items with warehouse & product info
     """
-    stream = f"warehouse_item"
-    apply_events_for_stream(stream)
+    # stream = f"warehouse_item"
+    # apply_events_for_stream(stream)
     items = item_repo.list()
     return jsonify([i.to_dict() for i in items])
 
@@ -167,8 +168,8 @@ def get_warehouse_item(item_id):
       404:
         description: Not found
     """
-    stream = f"warehouse_item:{item_id}"
-    apply_events_for_stream(stream)
+    # stream = f"warehouse_item:{item_id}"
+    # apply_events_for_stream(stream)
     item = item_repo.get_by_id(item_id)
     if not item:
       abort(404)
@@ -259,22 +260,210 @@ def increment_item_quantity(item_id):
     if not isinstance(delta, int):
       return jsonify({'msg': 'delta must be integer'}), 400
     # perform atomic update via SQL then refresh cached projection
-    row = db.session.execute(
-      db.text("UPDATE warehouse_items SET quantity = quantity + :delta WHERE id = :id RETURNING id"),
-      {'delta': delta, 'id': item_id}
-    ).fetchone()
-    if not row:
-      abort(404)
-    db.session.commit()
+    # db.session.execute(
+    #   db.text("UPDATE warehouse_items SET quantity = quantity + :delta WHERE id = :id"),
+    #   {'delta': delta, 'id': item_id}
+    # )
+
+    # Generic OCC executor: routes define SQL builder, OCC handles retries
+    read_sql = "SELECT COALESCE(version, 0) AS version FROM warehouse_items WHERE id = :id"
+    read_params = {'id': item_id}
+
+    def build_update(expected_version: int):
+      update_sql = """
+        UPDATE warehouse_items
+        SET quantity = quantity + :delta, version = :new_version
+        WHERE id = :id AND (version = :expected_version OR version IS NULL)
+      """
+      update_params = {
+        'id': item_id,
+        'delta': delta,
+        'expected_version': expected_version,
+        'new_version': expected_version + 1,
+      }
+      return update_sql, update_params
+
+    ok = occ_execute(read_sql, read_params, build_update, session=db.session, max_retries=5)
+    if not ok:
+      return jsonify({'msg': 'conflict or not found, please retry later'}), 409
+
     # invalidate cache for this item and stats
     from app.utils.cache import delete_key, _make_key
     delete_key(_make_key("warehouse_item", item_id))
     delete_key("warehouse_items:list")
     delete_key("stats:products")
     delete_key("stats:warehouses")
-    item = item_repo.get_by_id(item_id)
-    return jsonify(item.to_dict())
+    return jsonify({
+      "item_id": item_id,
+      "delta": delta,
+      "status": "updated"
+    }), 200
 
+
+@item_bp.route('/transfer', methods=['POST'])
+@jwt_required()
+def transfer_items():
+    """
+    Atomic multi-item quantity transfer with optimistic concurrency control (OCC).
+    ---
+    tags:
+      - Warehouse Items
+    summary: Atomically transfer quantities between multiple warehouse items
+    description: |
+      Applies a list of increment/decrement operations on warehouse items atomically.
+      Any underflow or conflict aborts the transfer. Supports OCC (version-based).
+      Caches and aggregates will be invalidated for affected items.
+
+    parameters:
+      - in: body
+        name: body
+        required: true
+        schema:
+          type: object
+          required:
+            - operations
+          properties:
+            operations:
+              type: array
+              description: List of operations to apply
+              items:
+                type: object
+                required:
+                  - item_id
+                  - delta
+                properties:
+                  item_id:
+                    type: integer
+                    description: ID of the warehouse item
+                  delta:
+                    type: integer
+                    description: Amount to add (can be negative)
+              example:
+                - item_id: 1
+                  delta: -5
+                - item_id: 2
+                  delta: 5
+                - item_id: 3
+                  delta: -2
+                - item_id: 4
+                  delta: 2
+
+    responses:
+      200:
+        description: Transfer succeeded; returns updated warehouse items
+        schema:
+          type: object
+          properties:
+            status:
+              type: string
+              example: ok
+            updated:
+              type: array
+              items:
+                type: object
+                properties:
+                  id:
+                    type: integer
+                  quantity:
+                    type: integer
+                  version:
+                    type: integer
+                  product_id:
+                    type: integer
+                  warehouse_id:
+                    type: integer
+      400:
+        description: Bad request; e.g., missing operations or no effective changes
+      404:
+        description: Some item IDs were not found
+      409:
+        description: Conflict or underflow; transfer aborted
+      500:
+        description: Internal server error during transfer
+    """
+    payload = request.json or {}
+    ops = payload.get('operations')
+    if not isinstance(ops, list) or not ops:
+      return jsonify({'msg': 'operations must be a non-empty list'}), 400
+
+    # Aggregate deltas per item and deduplicate same-row updates
+    agg: dict[int, int] = {}
+    for op in ops:
+      if not isinstance(op, dict):
+        return jsonify({'msg': 'each operation must be an object'}), 400
+      item_id = op.get('item_id')
+      delta = op.get('delta')
+      if not isinstance(item_id, int) or not isinstance(delta, int):
+        return jsonify({'msg': 'item_id and delta must be integers'}), 400
+      agg[item_id] = agg.get(item_id, 0) + delta
+
+    # Build final operations excluding zero net changes
+    norm_ops = [{'id': i, 'delta': d} for i, d in agg.items() if d != 0]
+    if not norm_ops:
+      return jsonify({'msg': 'no effective operations'}), 400
+
+    # Execute all OCC updates within a single transaction using occ_execute(commit=False)
+    try:
+      # Apply OCC per item without auto-commit; commit once if all succeed.
+      # No pessimistic locks; enforce quantity guard inside UPDATE when decrementing.
+      for op in norm_ops:
+        read_sql = "SELECT COALESCE(version, 0) AS version FROM warehouse_items WHERE id = :id"
+        read_params = {'id': op['id']}
+        def build_update(expected_version: int, _op=op):
+          if _op['delta'] < 0:
+            update_sql = """
+              UPDATE warehouse_items
+              SET quantity = quantity + :delta, version = :new_version
+              WHERE id = :id
+                AND (version = :expected_version OR version IS NULL)
+                AND quantity >= :need_qty
+            """
+            update_params = {
+              'id': _op['id'],
+              'delta': _op['delta'],
+              'expected_version': expected_version,
+              'new_version': expected_version + 1,
+              'need_qty': -_op['delta'],
+            }
+          else:
+            update_sql = """
+              UPDATE warehouse_items
+              SET quantity = quantity + :delta, version = :new_version
+              WHERE id = :id AND (version = :expected_version OR version IS NULL)
+            """
+            update_params = {
+              'id': _op['id'],
+              'delta': _op['delta'],
+              'expected_version': expected_version,
+              'new_version': expected_version + 1,
+            }
+          return update_sql, update_params
+        ok = occ_execute(read_sql, read_params, build_update, session=db.session, max_retries=5, commit=False)
+        if not ok:
+          db.session.rollback()
+          return jsonify({'msg': 'conflict, transfer aborted'}), 409
+      db.session.commit()
+    except Exception as e:
+      db.session.rollback()
+      return jsonify({'msg': 'transfer failed', 'error': str(e)}), 500
+
+    # Invalidate caches for affected items & aggregates
+    from app.utils.cache import delete_key, _make_key
+    delete_key('warehouse_items:list')
+    delete_key('stats:products')
+    delete_key('stats:warehouses')
+    for op in norm_ops:
+      delete_key(_make_key('warehouse_item', op['id']))
+
+    # Return fresh states
+    ids = [op['id'] for op in norm_ops]
+    rows = db.session.execute(
+      db.text(f"SELECT id, quantity, version, product_id, warehouse_id FROM warehouse_items WHERE id IN ({','.join(str(i) for i in ids)})")
+    ).mappings().all()
+    return jsonify({
+      'status': 'ok',
+      'updated': [dict(r) for r in rows]
+    }), 200
 
 # @item_bp.route('/<int:item_id>/increment', methods=['POST'])
 # @jwt_required()
@@ -317,6 +506,11 @@ def increment_item_quantity(item_id):
 #         "delta": delta,
 #     }
 #     event = append_event(f"warehouse_item:{item_id}", "WarehouseItemIncremented", event_payload)
+#     from app.utils.cache import delete_key, _make_key
+#     delete_key(_make_key("warehouse_item", item_id))
+#     delete_key("warehouse_items:list")
+#     delete_key("stats:products")
+#     delete_key("stats:warehouses")
 
 #     # Trả về kết quả mới nhất từ SQL (projection đã được apply)
 #     return jsonify({
