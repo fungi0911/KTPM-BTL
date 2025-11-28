@@ -1,16 +1,10 @@
-# Core web framework
-Flask
-
-# ORM / database integration (user already installed pinned version)
-Flask-SQLAlchemy==3.1.1
-
-# JWT auth
-flask-jwt-extended
-
-# Swagger/OpenAPI docs
-flasgger
-
-# Fake data generation for seeding
+fastapi
+uvicorn
+SQLAlchemy
+PyMySQL
+python-jose
+PyMongo
+requests
 Faker
 requests
 PyMongo
