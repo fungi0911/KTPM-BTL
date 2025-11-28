@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required
+from app.utils.rbac import roles_required
 from ..extensions import db
 from app.repositories import UserRepository
 
@@ -46,7 +47,7 @@ def get_user(user_id):
     return jsonify(user.to_dict())
 
 @user_bp.route('/<int:user_id>', methods=['PUT'])
-@jwt_required()
+@roles_required(['admin'])
 def update_user(user_id):
     """Update user (name, role, password)
     ---
@@ -78,7 +79,7 @@ def update_user(user_id):
     return jsonify(updated.to_dict())
 
 @user_bp.route('/<int:user_id>', methods=['DELETE'])
-@jwt_required()
+@roles_required(['admin'])
 def delete_user(user_id):
     """Delete user
     ---

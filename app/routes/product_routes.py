@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required
+from app.utils.rbac import roles_required
 from ..extensions import db
 from ..models.product import Product
 from ..models.warehouse_item import WarehouseItem
@@ -24,7 +25,7 @@ def get_products():
     return jsonify([p.to_dict() for p in products])
 
 @product_bp.route('/', methods=['POST'])
-@jwt_required()
+@roles_required(['admin'])
 def create_product():
     """Create a product
     ---
@@ -93,7 +94,7 @@ def get_product_stock(product_id):
     return jsonify({'product_id': product_id, 'total_quantity': int(total)})
 
 @product_bp.route('/<int:product_id>', methods=['PUT'])
-@jwt_required()
+@roles_required(['admin'])
 def update_product(product_id):
     """Update a product
     ---
@@ -124,7 +125,7 @@ def update_product(product_id):
     return jsonify(updated.to_dict())
 
 @product_bp.route('/<int:product_id>', methods=['DELETE'])
-@jwt_required()
+@roles_required(['admin'])
 def delete_product(product_id):
     """Delete product
     ---
