@@ -18,16 +18,17 @@ class WarehouseItemRepository(BaseRepository):
         key = _make_key("warehouse_item", id)
         cached = get_json(key)
         if cached is not None:
-            return WarehouseItem(**cached)
+            return cached
         it = self.session.get(WarehouseItem, id)
         if it:
             set_json(key, it.to_dict())
         return it
 
     def list(self, **kwargs) -> List[WarehouseItem]:
+        print("Chay vao ham list trong WarehouseItemRepository")
         cached = get_json(ITEM_LIST_KEY)
         if cached is not None:
-            return [WarehouseItem(**d) for d in cached]
+            return cached
         rows = self.session.query(WarehouseItem).all()
         rows=apply_events_for_rows(rows)
         set_json(ITEM_LIST_KEY, [r.to_dict() for r in rows])
@@ -123,7 +124,13 @@ class WarehouseItemRepository(BaseRepository):
                 db.func.sum(WarehouseItem.quantity).label('total_qty')
             ).group_by(WarehouseItem.product_id)
         ).all()
-        result = [{'product_id': r[0], 'total_quantity': r[1]} for r in rows]
+        result = [
+            {
+                'product_id': r[0], 
+                'total_quantity': float(r[1]) if r[1] is not None else 0
+            } 
+            for r in rows
+        ]
         set_json(STATS_PRODUCTS_KEY, result)
         return result
 
@@ -137,6 +144,12 @@ class WarehouseItemRepository(BaseRepository):
                 db.func.sum(WarehouseItem.quantity).label('total_qty')
             ).group_by(WarehouseItem.warehouse_id)
         ).all()
-        result = [{'warehouse_id': r[0], 'total_quantity': r[1]} for r in rows]
+        result = [
+            {
+                'warehouse_id': r[0], 
+                'total_quantity': float(r[1]) if r[1] is not None else 0
+            } 
+            for r in rows
+        ]
         set_json(STATS_WAREHOUSES_KEY, result)
         return result

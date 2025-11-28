@@ -1,8 +1,10 @@
 import json
 from typing import Any
-from app.extensions import redis_client
+import app.extensions as extensions
 
 DEFAULT_TTL = 300  # seconds
+
+ # Sử dụng extensions.redis_client từ extensions
 
 def _make_key(prefix: str, *parts) -> str:
     if not parts:
@@ -10,10 +12,11 @@ def _make_key(prefix: str, *parts) -> str:
     return prefix + ":" + ":".join(str(p) for p in parts)
 
 def get_json(key: str) -> Any:
-    if redis_client is None:
+    if extensions.redis_client is None:
         return None
     try:
-        raw = redis_client.get(key)
+        raw = extensions.redis_client.get(key)
+        print(f"🔍 Đang truy xuất khóa {key} từ Redis")  # Log khi truy xuất
     except Exception:
         return None
 
@@ -26,17 +29,19 @@ def get_json(key: str) -> Any:
         return None
 
 def set_json(key: str, value: Any, ttl: int = DEFAULT_TTL) -> None:
-    if redis_client is None:
+    if extensions.redis_client is None:
         return
     try:
-        redis_client.set(key, json.dumps(value, ensure_ascii=False), ex=ttl)
-    except Exception:
+        extensions.redis_client.set(key, json.dumps(value, ensure_ascii=False), ex=ttl)
+        print(f"💾 [SAVE] Đã lưu khóa {key} vào Redis với TTL {ttl} giây")  # Log khi lưu
+    except Exception as e:
+        print(f"❌ LỖI TRONG SET_JSON: {e}")
         return
 
 def delete_key(key: str) -> None:
-    if redis_client is None:
+    if extensions.redis_client is None:
         return
     try:
-        redis_client.delete(key)
+        extensions.redis_client.delete(key)
     except Exception:
         return
