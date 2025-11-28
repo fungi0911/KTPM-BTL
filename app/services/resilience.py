@@ -130,9 +130,9 @@ class resilient_call:
         success_threshold: int = 2,
         exclude_exceptions: Tuple[Type[Exception], ...] = (),
         # Retry params  
-        retry_attempts: int = 3,
-        retry_wait_min: float = 0.5,
-        retry_wait_max: float = 10.0,
+        retry_attempts: int = 2,
+        retry_wait_min: float = 0.1,
+        retry_wait_max: float = 1.0,
         retry_wait_multiplier: float = 2.0,
         retry_jitter: Tuple[float, float] = (0, 0.5),
         retry_max_time: Optional[float] = None,

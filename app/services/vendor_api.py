@@ -66,13 +66,12 @@ POOL_MAXSIZE = _env_int("VENDOR_POOL_MAXSIZE", 10, 1)
 # Circuit Breaker
 CB_FAIL_MAX = _env_int("CB_FAILURE_THRESHOLD", 5, 1)
 CB_RESET_TIMEOUT = _env_float("CB_RECOVERY_TIME", 15.0, 0.1)
-CB_SUCCESS_THRESHOLD = _env_int("CB_HALF_OPEN_SUCC", 2, 1)
 
 # Retry
-RETRY_ATTEMPTS = _env_int("RETRY_ATTEMPTS", 3, 1)
-RETRY_WAIT_MIN = _env_float("RETRY_WAIT_MIN", 0.5, 0.0)
-RETRY_WAIT_MAX = _env_float("RETRY_WAIT_MAX", 10.0, 0.1)
-RETRY_MAX_TIME = _env_float("VENDOR_RETRY_BUDGET", 5.0, 0.1)
+RETRY_ATTEMPTS = _env_int("RETRY_ATTEMPTS", 2, 1)
+RETRY_WAIT_MIN = _env_float("RETRY_WAIT_MIN", 0.1, 0.0)
+RETRY_WAIT_MAX = _env_float("RETRY_WAIT_MAX", 1.0, 0.1)
+RETRY_MAX_TIME = _env_float("VENDOR_RETRY_BUDGET", 2.0, 0.1)
 
 
 # ============================================================================
@@ -120,7 +119,6 @@ class VendorAPI:
             # Circuit breaker
             fail_max=CB_FAIL_MAX,
             reset_timeout=CB_RESET_TIMEOUT,
-            success_threshold=CB_SUCCESS_THRESHOLD,
             exclude_exceptions=(UpstreamClientError,),  # Don't break on 4xx
             # Retry
             retry_attempts=RETRY_ATTEMPTS,
