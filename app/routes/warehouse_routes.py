@@ -1,13 +1,16 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required
-from ..models.warehouse import Warehouse
-from ..models.warehouse_item import WarehouseItem
-from ..extensions import db, limiter
+from app.utils.rbac import roles_required
+from ..extensions import db
+from app.repositories import WarehouseRepository
 
 warehouse_bp = Blueprint("warehouse", __name__, url_prefix="/warehouses")
 
+# repository
+warehouse_repo = WarehouseRepository(db.session)
+
 @warehouse_bp.route('/', methods=['GET'])
-@limiter.limit("10 per minute")
+@roles_required(['admin'])
 def get_warehouses():
     """Get all warehouses
     ---
@@ -17,12 +20,11 @@ def get_warehouses():
       200:
         description: List of warehouses
     """
-    warehouses = Warehouse.query.all()
+    warehouses = warehouse_repo.list()
     return jsonify([w.to_dict() for w in warehouses])
 
 @warehouse_bp.route('/', methods=['POST'])
-@limiter.limit("10 per minute")
-@jwt_required()
+@roles_required(['admin'])
 def create_warehouse():
     """Create a new warehouse
     ---
@@ -41,13 +43,10 @@ def create_warehouse():
         description: Warehouse created successfully
     """
     data = request.json
-    warehouse = Warehouse(**data)
-    db.session.add(warehouse)
-    db.session.commit()
+    warehouse = warehouse_repo.create(data)
     return jsonify(warehouse.to_dict()), 201
 
 @warehouse_bp.route('/<int:warehouse_id>', methods=['GET'])
-@limiter.limit("10 per minute")
 def get_warehouse(warehouse_id):
     """Get warehouse by ID
     ---
@@ -64,11 +63,12 @@ def get_warehouse(warehouse_id):
       404:
         description: Not found
     """
-    w = Warehouse.query.get_or_404(warehouse_id)
+    w = warehouse_repo.get_by_id(warehouse_id)
+    if not w:
+      abort(404)
     return jsonify(w.to_dict())
 
 @warehouse_bp.route('/<int:warehouse_id>/items', methods=['GET'])
-@limiter.limit("10 per minute")
 def get_items_for_warehouse(warehouse_id):
     """List items in a specific warehouse with optional product filter
     ---
@@ -88,17 +88,15 @@ def get_items_for_warehouse(warehouse_id):
       404:
         description: Warehouse not found
     """
-    Warehouse.query.get_or_404(warehouse_id)
+    # ensure exists
+    if not warehouse_repo.get_by_id(warehouse_id):
+      abort(404)
     product_id = request.args.get('product_id', type=int)
-    q = WarehouseItem.query.filter(WarehouseItem.warehouse_id == warehouse_id)
-    if product_id:
-        q = q.filter(WarehouseItem.product_id == product_id)
-    items = q.all()
+    items = warehouse_repo.get_items_for_warehouse(warehouse_id, product_id)
     return jsonify([i.to_dict() for i in items])
 
 @warehouse_bp.route('/<int:warehouse_id>', methods=['PUT'])
-@limiter.limit("10 per minute")
-@jwt_required()
+@roles_required(['admin'])
 def update_warehouse(warehouse_id):
     """Update warehouse
     ---
@@ -121,16 +119,14 @@ def update_warehouse(warehouse_id):
       404:
         description: Not found
     """
-    w = Warehouse.query.get_or_404(warehouse_id)
     data = request.json or {}
-    if 'name' in data:
-        w.name = data['name']
-    db.session.commit()
-    return jsonify(w.to_dict())
+    updated = warehouse_repo.update(warehouse_id, data)
+    if not updated:
+      abort(404)
+    return jsonify(updated.to_dict())
 
 @warehouse_bp.route('/<int:warehouse_id>', methods=['DELETE'])
-@limiter.limit("10 per minute")
-@jwt_required()
+@roles_required(['admin'])
 def delete_warehouse(warehouse_id):
     """Delete warehouse
     ---
@@ -147,7 +143,7 @@ def delete_warehouse(warehouse_id):
       404:
         description: Not found
     """
-    w = Warehouse.query.get_or_404(warehouse_id)
-    db.session.delete(w)
-    db.session.commit()
-    return '', 204
+    ok = warehouse_repo.delete(warehouse_id)
+    if not ok:
+      abort(404)
+    return jsonify({'status': 'deleted', 'warehouse_id': warehouse_id}), 200
