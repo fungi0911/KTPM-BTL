@@ -26,7 +26,15 @@ def get_warehouse_items():
     stream = f"warehouse_item"
     apply_events_for_stream(stream)
     items = item_repo.list()
-    return jsonify([i.to_dict() for i in items])
+
+    results = []
+    for i in items:
+        if isinstance(i, dict):
+            results.append(i)
+        else:
+            results.append(i.to_dict())
+
+    return jsonify(results)
 
 @item_bp.route('/search', methods=['GET'])
 def search_items():
@@ -170,8 +178,13 @@ def get_warehouse_item(item_id):
     stream = f"warehouse_item:{item_id}"
     apply_events_for_stream(stream)
     item = item_repo.get_by_id(item_id)
+
     if not item:
       abort(404)
+    
+    if isinstance(item, dict):
+        return jsonify(item)
+    
     return jsonify(item.to_dict())
 
 @item_bp.route('/<int:item_id>', methods=['PUT'])

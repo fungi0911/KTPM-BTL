@@ -17,17 +17,27 @@ class ProductRepository(BaseRepository):
         key = _make_key("product", id)
         cached = get_json(key)
         if cached is not None:
+            print(f"🟢 [HIT] Đã tìm thấy Product ID {id} trong Redis!")
             # return plain dict for routes to jsonify
-            return Product(**cached) if isinstance(cached, dict) else cached
+            return Product(**cached)
+        else:
+            print(f"🔴 [MISS] Product ID {id} không có trong Redis. Truy vấn từ DB...")
+
         p = self.session.get(Product, id)
         if p:
             try:
                 set_json(key, p.to_dict())
+                print(f"💾 [SAVE] Đã lưu Product ID {id} vào Redis") # Log khi lưu
             except Exception:
                 pass
         return p
 
     def list(self, **kwargs) -> List[Product]:
+        if kwargs:
+            # Query DB trực tiếp với filter
+            query = self.session.query(Product).filter_by(**kwargs)
+            return query.all()
+
         # cache global product list
         cached = get_json(PRODUCT_LIST_KEY)
         if cached is not None:
@@ -49,7 +59,7 @@ class ProductRepository(BaseRepository):
         return p
 
     def update(self, id: int, data: dict) -> Optional[Product]:
-        p = self.get_by_id(id)
+        p = self.session.get(Product, id)
         if not p:
             return None
         for k, v in data.items():
