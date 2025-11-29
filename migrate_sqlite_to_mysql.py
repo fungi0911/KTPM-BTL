@@ -6,7 +6,7 @@ SQLITE_DB = "inventory.db"
 MYSQL_CONFIG = {
     "host": "localhost",
     "user": "root",
-    "password": "123456",  # sửa cho đúng
+    "password": "12345678",  # sửa cho đúng
     "database": "ktpm",
     "charset": "utf8mb4"
 }
