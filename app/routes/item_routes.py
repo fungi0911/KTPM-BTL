@@ -304,7 +304,7 @@ def increment_item_quantity(item_id):
       }
       return update_sql, update_params
 
-    ok = occ_execute(read_sql, read_params, build_update, session=db.session, max_retries=5)
+    ok = occ_execute(read_sql, read_params, build_update, session=db.session)
     if not ok:
       return jsonify({'msg': 'conflict or not found, please retry later'}), 409
 
@@ -459,7 +459,7 @@ def transfer_items():
               'new_version': expected_version + 1,
             }
           return update_sql, update_params
-        ok = occ_execute(read_sql, read_params, build_update, session=db.session, max_retries=5, commit=False)
+        ok = occ_execute(read_sql, read_params, build_update, session=db.session, commit=False)
         if not ok:
           db.session.rollback()
           return jsonify({'msg': 'conflict, transfer aborted'}), 409

@@ -7,7 +7,6 @@ def occ_execute(read_version_sql: str,
 			read_params: dict,
 			build_update_fn,
 			session=None,
-			max_retries: int = 5,
 			commit: bool = True) -> bool:
 	"""Generic OCC executor for arbitrary tables and SQL.
 
@@ -25,29 +24,27 @@ def occ_execute(read_version_sql: str,
 	if session is None:
 		session = db.session
 
-	attempts = 0
-	while attempts < max_retries:
-		cur = session.execute(db.text(read_version_sql), read_params).mappings().first()
-		if not cur:
-			return False
-		expected_version = int(cur.get('version', 0))
+	
+	cur = session.execute(db.text(read_version_sql), read_params).mappings().first()
+	if not cur:
+		return False
+	expected_version = int(cur.get('version', 0))
 
-		update_sql, update_params = build_update_fn(expected_version)
-		sql = update_sql if hasattr(update_sql, 'text') else db.text(update_sql)
+	update_sql, update_params = build_update_fn(expected_version)
+	sql = update_sql if hasattr(update_sql, 'text') else db.text(update_sql)
 
-		res = session.execute(sql, update_params)
-		if res.rowcount == 1:
-			if commit:
-				session.commit()
-			return True
+	res = session.execute(sql, update_params)
+	if res.rowcount == 1:
 		if commit:
-			session.rollback()
-		attempts += 1
+			session.commit()
+		return True
+	if commit:
+		session.rollback()
 
 	return False
 
 
-def occ_batch_update_quantity(ops: List[Dict], session=None, max_retries: int = 5) -> bool:
+def occ_batch_update_quantity(ops: List[Dict], session=None) -> bool:
 	"""Atomic multi-row optimistic quantity update.
 
 	ops: list of {'id': <item_id>, 'delta': <int>} (delta may be negative or positive)
@@ -63,8 +60,6 @@ def occ_batch_update_quantity(ops: List[Dict], session=None, max_retries: int = 
 	if not item_ids:
 		return False
 
-	attempts = 0
-	while attempts < max_retries:
 		# Read current states for all rows
 		placeholders = ','.join(str(int(i)) for i in item_ids)
 		select_sql = db.text(f"SELECT id, quantity, COALESCE(version,0) AS version FROM warehouse_items WHERE id IN ({placeholders}) FOR UPDATE")
@@ -110,7 +105,7 @@ def occ_batch_update_quantity(ops: List[Dict], session=None, max_retries: int = 
 			return True
 		# conflict: rollback & retry
 		session.rollback()
-		attempts += 1
+
 
 	return False
 
