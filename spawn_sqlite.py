@@ -36,11 +36,11 @@ try:
 except Exception:  # Faker not installed
     faker = None
 
-DEFAULT_DB = "/Users/atula/Desktop/KTPM_BTL/inventory.db"
+DEFAULT_DB = "instance/inventory.db"
 DEFAULT_USERS = 5
 DEFAULT_PRODUCTS = 20
 DEFAULT_WAREHOUSES = 3
-DEFAULT_ITEMS = 40
+DEFAULT_ITEMS = 100000
 ROLES = ["staff", "manager", "admin"]
 
 SCHEMA_SQL = [
@@ -163,8 +163,8 @@ def ensure_admin(conn: sqlite3.Connection):
         return
     print("[admin] Creating admin user (username=admin, password=admin123, role=admin)")
     cur.execute(
-        "INSERT INTO users(name, username, password, role) VALUES (?,?,?,?)",
-        ("Administrator", "admin", "admin123", "admin")
+        "INSERT INTO users(name, username, password, role, version) VALUES (?,?,?,?,?)",
+        ("Administrator", "admin", "admin123", "admin", 0)
     )
     conn.commit()
 
@@ -184,7 +184,7 @@ def insert_products(conn: sqlite3.Connection, target: int, append: bool):
     for i in range(to_create):
         name = gen_product_name(i + current)
         price = round(random.uniform(5, 500), 2)
-        cur.execute("INSERT INTO products(name, price) VALUES (?, ?)", (name, price))
+        cur.execute("INSERT INTO products(name, price, version) VALUES (?, ?, ?)", (name, price, 0))
     conn.commit()
 
 
@@ -201,7 +201,7 @@ def insert_warehouses(conn: sqlite3.Connection, target: int, append: bool):
         return
     print(f"[warehouses] Inserting {to_create} warehouses...")
     for i in range(to_create):
-        cur.execute("INSERT INTO warehouses(name) VALUES (?)", (f"Warehouse {i + current + 1}",))
+        cur.execute("INSERT INTO warehouses(name, version) VALUES (?, ?)", (f"Warehouse {i + current + 1}", 0))
     conn.commit()
 
 
@@ -230,8 +230,8 @@ def insert_items(conn: sqlite3.Connection, target: int, append: bool):
     print(f"[items] Inserting {to_create} warehouse_items...")
     batch = []
     for _ in range(to_create):
-        batch.append((random.choice(product_ids), random.choice(warehouse_ids), random.randint(1, 200)))
-    cur.executemany("INSERT INTO warehouse_items(product_id, warehouse_id, quantity) VALUES (?,?,?)", batch)
+        batch.append((random.choice(product_ids), random.choice(warehouse_ids), random.randint(1, 200), 0))
+    cur.executemany("INSERT INTO warehouse_items(product_id, warehouse_id, quantity, version) VALUES (?,?,?,?)", batch)
     conn.commit()
 
 
