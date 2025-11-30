@@ -36,11 +36,11 @@ try:
 except Exception:  # Faker not installed
     faker = None
 
-DEFAULT_DB = "/Users/atula/Desktop/KTPM_BTL/inventory.db"
+DEFAULT_DB = "instance/inventory.db"
 DEFAULT_USERS = 5
 DEFAULT_PRODUCTS = 20
 DEFAULT_WAREHOUSES = 3
-DEFAULT_ITEMS = 40
+DEFAULT_ITEMS = 100000
 ROLES = ["staff", "manager", "admin"]
 
 SCHEMA_SQL = [

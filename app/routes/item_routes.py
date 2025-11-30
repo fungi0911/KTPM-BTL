@@ -5,6 +5,7 @@ from app.event_store.event_store import append_event, apply_events_for_stream
 from ..models.warehouse_item import WarehouseItem
 from ..models.product import Product
 from ..models.warehouse import Warehouse
+from ..extensions import db, limiter
 from ..extensions import db
 from app.repositories import WarehouseItemRepository
 from app.utils.occ import occ_execute, occ_batch_update_quantity
@@ -15,6 +16,7 @@ item_bp = Blueprint("item", __name__, url_prefix="/warehouse_items")
 item_repo = WarehouseItemRepository(db.session)
 
 @item_bp.route('/', methods=['GET'])
+@limiter.limit("10 per minute")
 def get_warehouse_items():
     """Get all warehouse items
     ---
@@ -38,6 +40,7 @@ def get_warehouse_items():
     return jsonify(results)
 
 @item_bp.route('/search', methods=['GET'])
+@limiter.limit("10 per minute")
 def search_items():
     """Search warehouse items with filters & pagination
     ---
@@ -103,6 +106,7 @@ def search_items():
     })
 
 @item_bp.route('/stats/products', methods=['GET'])
+@limiter.limit("10 per minute")
 def product_stock_stats():
     """Aggregate total quantity per product across all warehouses
     ---
@@ -135,6 +139,7 @@ def warehouse_stock_stats():
     ])
 
 @item_bp.route('/', methods=['POST'])
+@limiter.limit("10 per minute")
 @jwt_required()
 def create_warehouse_item():
     """Add product to warehouse
@@ -160,6 +165,7 @@ def create_warehouse_item():
     return jsonify(item.to_dict()), 201
 
 @item_bp.route('/<int:item_id>', methods=['GET'])
+@limiter.limit("10 per minute")
 def get_warehouse_item(item_id):
     """Get warehouse item by ID
     ---
@@ -182,13 +188,14 @@ def get_warehouse_item(item_id):
 
     if not item:
       abort(404)
-    
+
     if isinstance(item, dict):
         return jsonify(item)
-    
+
     return jsonify(item.to_dict())
 
 @item_bp.route('/<int:item_id>', methods=['PUT'])
+@limiter.limit("10 per minute")
 @jwt_required()
 def update_warehouse_item(item_id):
     """Update warehouse item (quantity or reassignment)
@@ -221,6 +228,7 @@ def update_warehouse_item(item_id):
     return jsonify(updated.to_dict())
 
 @item_bp.route('/<int:item_id>', methods=['DELETE'])
+@limiter.limit("10 per minute")
 @jwt_required()
 def delete_warehouse_item(item_id):
     """Delete warehouse item
@@ -296,7 +304,7 @@ def increment_item_quantity(item_id):
       }
       return update_sql, update_params
 
-    ok = occ_execute(read_sql, read_params, build_update, session=db.session, max_retries=5)
+    ok = occ_execute(read_sql, read_params, build_update, session=db.session)
     if not ok:
       return jsonify({'msg': 'conflict or not found, please retry later'}), 409
 
@@ -451,7 +459,7 @@ def transfer_items():
               'new_version': expected_version + 1,
             }
           return update_sql, update_params
-        ok = occ_execute(read_sql, read_params, build_update, session=db.session, max_retries=5, commit=False)
+        ok = occ_execute(read_sql, read_params, build_update, session=db.session, commit=False)
         if not ok:
           db.session.rollback()
           return jsonify({'msg': 'conflict, transfer aborted'}), 409
@@ -511,7 +519,7 @@ def transfer_items():
 #         return jsonify({'msg': 'delta must be integer'}), 400
 
 #     # # Kiểm tra item tồn tại
-   
+
 
 #     # Append event stream thay vì update thẳng
 #     event_payload = {

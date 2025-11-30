@@ -76,7 +76,7 @@ class WarehouseItemRepository(BaseRepository):
             """
             return update_sql, params
 
-        ok = occ_execute(read_sql, read_params, build_update, session=self.session, max_retries=5, commit=True)
+        ok = occ_execute(read_sql, read_params, build_update, session=self.session, commit=True)
         if not ok:
             return None
 

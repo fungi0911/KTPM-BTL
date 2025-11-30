@@ -4,6 +4,7 @@ from app.utils.rbac import roles_required
 from ..extensions import db
 from ..models.product import Product
 from ..models.warehouse_item import WarehouseItem
+from ..extensions import db, limiter
 from app.repositories import ProductRepository
 
 product_bp = Blueprint("product", __name__, url_prefix="/products")
@@ -12,6 +13,7 @@ product_bp = Blueprint("product", __name__, url_prefix="/products")
 product_repo = ProductRepository(db.session)
 
 @product_bp.route('/', methods=['GET'])
+@limiter.limit("10 per minute")
 def get_products():
     """Get all products
     ---
@@ -25,6 +27,8 @@ def get_products():
     return jsonify([p.to_dict() for p in products])
 
 @product_bp.route('/', methods=['POST'])
+@limiter.limit("10 per minute")
+@jwt_required()
 @roles_required(['admin'])
 def create_product():
     """Create a product
@@ -49,6 +53,7 @@ def create_product():
     return jsonify(product.to_dict()), 201
 
 @product_bp.route('/<int:product_id>', methods=['GET'])
+@limiter.limit("10 per minute")
 def get_product(product_id):
     """Get product by ID
     ---
@@ -71,6 +76,7 @@ def get_product(product_id):
     return jsonify(product.to_dict())
 
 @product_bp.route('/<int:product_id>/stock', methods=['GET'])
+@limiter.limit("10 per minute")
 def get_product_stock(product_id):
     """Get total stock of a product across all warehouses
     ---
@@ -94,6 +100,8 @@ def get_product_stock(product_id):
     return jsonify({'product_id': product_id, 'total_quantity': int(total)})
 
 @product_bp.route('/<int:product_id>', methods=['PUT'])
+@limiter.limit("10 per minute")
+@jwt_required()
 @roles_required(['admin'])
 def update_product(product_id):
     """Update a product
@@ -126,6 +134,8 @@ def update_product(product_id):
 
 @product_bp.route('/<int:product_id>', methods=['DELETE'])
 @roles_required(['admin'])
+@limiter.limit("10 per minute")
+@jwt_required()
 def delete_product(product_id):
     """Delete product
     ---

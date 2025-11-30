@@ -12,6 +12,14 @@ PyMongo
 # Redis client for caching
 redis
 
+Flask-Limiter
+
+matplotlib
+
+redis
+
+celery
+
 # (Optional) If you later use environment variables from a .env file, uncomment:
 # python-dotenv
 
