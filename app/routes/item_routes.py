@@ -7,7 +7,7 @@ from ..models.product import Product
 from ..models.warehouse import Warehouse
 from ..extensions import db, limiter
 from app.repositories import WarehouseItemRepository
-from app.utils.occ import occ_execute, occ_batch_update_quantity
+from app.utils.occ import occ_execute
 from requests.exceptions import RequestException
 from ..services.resilience import CircuitOpenError, RetryExhaustedError
 from ..services.vendor_api import UpstreamClientError, get_vendor_client
@@ -164,6 +164,7 @@ def create_warehouse_item():
           type: object
           properties:
             warehouse_id: {type: integer}
+            version: {type: integer}
             product_id: {type: integer}
             quantity: {type: integer}
     responses:
@@ -176,7 +177,6 @@ def create_warehouse_item():
 
 
 @item_bp.route('/<int:item_id>', methods=['GET'])
-@limiter.limit("10 per minute")
 def get_warehouse_item(item_id):
     """Get warehouse item by ID
     ---
@@ -283,6 +283,7 @@ def increment_item_quantity(item_id):
           type: object
           properties:
             delta: {type: integer, description: "Amount to add (can be negative)"}
+            version: {type: integer, description: "Expected current version for OCC (optional)"}
     responses:
       200:
         description: Updated item with new quantity
@@ -293,15 +294,31 @@ def increment_item_quantity(item_id):
     delta = data.get('delta')
     if not isinstance(delta, int):
       return jsonify({'msg': 'delta must be integer'}), 400
-    # perform atomic update via SQL then refresh cached projection
-    # db.session.execute(
-    #   db.text("UPDATE warehouse_items SET quantity = quantity + :delta WHERE id = :id"),
-    #   {'delta': delta, 'id': item_id}
-    # )
+    # Naive mode (no OCC) for demo/testing lost updates: ?mode=naive
+    mode = request.args.get('mode')
+    if mode == 'naive':
+      res = db.session.execute(
+        db.text("UPDATE warehouse_items SET quantity = quantity + :delta WHERE id = :id"),
+        {'delta': delta, 'id': item_id}
+      )
+      db.session.commit()
+      from app.utils.cache import delete_key, _make_key
+      delete_key(_make_key("warehouse_item", item_id))
+      delete_key("warehouse_items:list")
+      delete_key("stats:products")
+      delete_key("stats:warehouses")
+      return jsonify({
+        'item_id': item_id,
+        'delta': delta,
+        'status': 'updated-naive',
+        'rowcount': res.rowcount
+      }), 200
 
     # Generic OCC executor: routes define SQL builder, OCC handles retries
     read_sql = "SELECT COALESCE(version, 0) AS version FROM warehouse_items WHERE id = :id"
     read_params = {'id': item_id}
+
+    client_version = data.get('version') if isinstance(data.get('version'), int) else None
 
     def build_update(expected_version: int):
       update_sql = """
@@ -317,7 +334,13 @@ def increment_item_quantity(item_id):
       }
       return update_sql, update_params
 
-    ok = occ_execute(read_sql, read_params, build_update, session=db.session)
+    ok = occ_execute(
+      read_sql,
+      read_params,
+      build_update,
+      session=db.session,
+      expected_version_override=client_version
+    )
     if not ok:
       return jsonify({'msg': 'conflict or not found, please retry later'}), 409
 
@@ -372,6 +395,9 @@ def transfer_items():
                   delta:
                     type: integer
                     description: Amount to add (can be negative)
+                  version:
+                    type: integer
+                    description: Optional expected current version for OCC of this item
               example:
                 - item_id: 1
                   delta: -5
@@ -472,7 +498,22 @@ def transfer_items():
               'new_version': expected_version + 1,
             }
           return update_sql, update_params
-        ok = occ_execute(read_sql, read_params, build_update, session=db.session, commit=False)
+        client_version = None
+        # Accept optional version from original payload op entries
+        # Map original ops list to find version if provided (single pass acceptable given small size)
+        # Simpler: recompute from payload ops list
+        for original in ops:
+          if isinstance(original, dict) and original.get('item_id') == op['id'] and isinstance(original.get('version'), int):
+            client_version = original.get('version')
+            break
+        ok = occ_execute(
+          read_sql,
+          read_params,
+          build_update,
+          session=db.session,
+          commit=False,
+          expected_version_override=client_version
+        )
         if not ok:
           db.session.rollback()
           return jsonify({'msg': 'conflict, transfer aborted'}), 409

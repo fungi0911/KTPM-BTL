@@ -38,6 +38,7 @@ def create_warehouse():
           type: object
           properties:
             name: {type: string}
+            version: {type: integer}
     responses:
       201:
         description: Warehouse created successfully
