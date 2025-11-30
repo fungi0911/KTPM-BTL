@@ -6,17 +6,19 @@ from ..models.warehouse_item import WarehouseItem
 from ..models.product import Product
 from ..models.warehouse import Warehouse
 from ..extensions import db, limiter
-from ..extensions import db
 from app.repositories import WarehouseItemRepository
 from app.utils.occ import occ_execute, occ_batch_update_quantity
 from requests.exceptions import RequestException
 from ..services.resilience import CircuitOpenError, RetryExhaustedError
 from ..services.vendor_api import UpstreamClientError, get_vendor_client
+from app.repositories import ProductRepository
+from app.tasks import update_product_price
 
 item_bp = Blueprint("item", __name__, url_prefix="/warehouse_items")
 
 # repository
 item_repo = WarehouseItemRepository(db.session)
+product_repo = ProductRepository(db.session)
 
 
 @item_bp.route('/', methods=['GET'])
@@ -613,12 +615,26 @@ def get_vendor_price(product_id: int):
                 product_id, 
                 params=passthrough or None
             )
-        
+        update_task_id = None
+        update_status = "skipped"
+        if isinstance(data, dict) and "price" in data:
+            product = product_repo.get_by_id(product_id)
+            if product:
+                task = update_product_price.delay(product_id, data["price"])
+                update_task_id = task.id
+                update_status = "enqueued"
+            else:
+                update_status = "product_not_found"
+
         return jsonify({
             "data": data,
             "attempts": attempts,
             "strategy": strategy,
             "state": client.snapshot(),
+            "price_update": {
+                "status": update_status,
+                "task_id": update_task_id,
+            }
         })
     
     except CircuitOpenError as e:
