@@ -176,7 +176,6 @@ def create_warehouse_item():
 
 
 @item_bp.route('/<int:item_id>', methods=['GET'])
-@limiter.limit("10 per minute")
 def get_warehouse_item(item_id):
     """Get warehouse item by ID
     ---
