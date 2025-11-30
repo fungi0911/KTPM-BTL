@@ -72,6 +72,7 @@ def update_user(user_id):
             name: {type: string}
             role: {type: string}
             password: {type: string}
+            version: {type: integer}
     responses:
       200:
         description: Updated user

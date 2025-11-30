@@ -44,6 +44,7 @@ def create_product():
           properties:
             name: {type: string}
             price: {type: number}
+            version: {type: integer}
     responses:
       201:
         description: Product created successfully

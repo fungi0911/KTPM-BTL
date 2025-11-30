@@ -81,8 +81,15 @@ class ProductRepository(BaseRepository):
                 WHERE id = :id AND (version = :expected_version OR version IS NULL)
             """
             return update_sql, params
-
-        ok = occ_execute(read_sql, read_params, build_update, session=self.session, commit=True)
+        client_version = data.get('version')
+        ok = occ_execute(
+            read_sql,
+            read_params,
+            build_update,
+            session=self.session,
+            commit=True,
+            expected_version_override=client_version if client_version is not None else None
+        )
         if not ok:
             return None
         delete_key(PRODUCT_LIST_KEY)
