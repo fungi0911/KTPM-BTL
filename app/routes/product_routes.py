@@ -1,12 +1,19 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required
+from app.utils.rbac import roles_required
+from ..extensions import db
 from ..models.product import Product
 from ..models.warehouse_item import WarehouseItem
-from ..extensions import db
+from ..extensions import db, limiter
+from app.repositories import ProductRepository
 
 product_bp = Blueprint("product", __name__, url_prefix="/products")
 
+# instantiate repository (uses app-wide db.session by default)
+product_repo = ProductRepository(db.session)
+
 @product_bp.route('/', methods=['GET'])
+@limiter.limit("10 per minute")
 def get_products():
     """Get all products
     ---
@@ -16,11 +23,13 @@ def get_products():
       200:
         description: List of products
     """
-    products = Product.query.all()
+    products = product_repo.list()
     return jsonify([p.to_dict() for p in products])
 
 @product_bp.route('/', methods=['POST'])
+@limiter.limit("10 per minute")
 @jwt_required()
+@roles_required(['admin'])
 def create_product():
     """Create a product
     ---
@@ -40,12 +49,11 @@ def create_product():
         description: Product created successfully
     """
     data = request.json
-    product = Product(**data)
-    db.session.add(product)
-    db.session.commit()
+    product = product_repo.create(data)
     return jsonify(product.to_dict()), 201
 
 @product_bp.route('/<int:product_id>', methods=['GET'])
+@limiter.limit("10 per minute")
 def get_product(product_id):
     """Get product by ID
     ---
@@ -62,10 +70,13 @@ def get_product(product_id):
       404:
         description: Not found
     """
-    product = Product.query.get_or_404(product_id)
+    product = product_repo.get_by_id(product_id)
+    if not product:
+      abort(404)
     return jsonify(product.to_dict())
 
 @product_bp.route('/<int:product_id>/stock', methods=['GET'])
+@limiter.limit("10 per minute")
 def get_product_stock(product_id):
     """Get total stock of a product across all warehouses
     ---
@@ -82,14 +93,16 @@ def get_product_stock(product_id):
       404:
         description: Product not found
     """
-    Product.query.get_or_404(product_id)
-    total = db.session.execute(
-        db.select(db.func.sum(WarehouseItem.quantity)).filter(WarehouseItem.product_id == product_id)
-    ).scalar() or 0
+    # ensure product exists
+    if not product_repo.get_by_id(product_id):
+      abort(404)
+    total = product_repo.get_stock(product_id)
     return jsonify({'product_id': product_id, 'total_quantity': int(total)})
 
 @product_bp.route('/<int:product_id>', methods=['PUT'])
+@limiter.limit("10 per minute")
 @jwt_required()
+@roles_required(['admin'])
 def update_product(product_id):
     """Update a product
     ---
@@ -113,16 +126,15 @@ def update_product(product_id):
       404:
         description: Not found
     """
-    product = Product.query.get_or_404(product_id)
     data = request.json or {}
-    if 'name' in data:
-        product.name = data['name']
-    if 'price' in data:
-        product.price = data['price']
-    db.session.commit()
-    return jsonify(product.to_dict())
+    updated = product_repo.update(product_id, data)
+    if not updated:
+      abort(404)
+    return jsonify(updated.to_dict())
 
 @product_bp.route('/<int:product_id>', methods=['DELETE'])
+@roles_required(['admin'])
+@limiter.limit("10 per minute")
 @jwt_required()
 def delete_product(product_id):
     """Delete product
@@ -140,7 +152,7 @@ def delete_product(product_id):
       404:
         description: Not found
     """
-    product = Product.query.get_or_404(product_id)
-    db.session.delete(product)
-    db.session.commit()
-    return '', 204
+    ok = product_repo.delete(product_id)
+    if not ok:
+      abort(404)
+    return jsonify({'status': 'deleted', 'product_id': product_id}), 200

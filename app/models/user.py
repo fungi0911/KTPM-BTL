@@ -8,7 +8,7 @@ class User(db.Model):
     username = db.Column(db.String(100), unique=True, nullable=False)
     password = db.Column(db.String(200), nullable=False)
     role = db.Column(db.String(50), default="staff")
-
+    version = db.Column(db.Integer, nullable=True, default=0)
     def set_password(self, password):
         self.password = password
         
@@ -16,4 +16,4 @@ class User(db.Model):
         return password == self.password
 
     def to_dict(self):
-        return {"id": self.id, "name": self.name, "username": self.username, "role": self.role}
+        return {"id": self.id, "name": self.name, "username": self.username, "role": self.role, "version": self.version}
