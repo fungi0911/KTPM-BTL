@@ -58,7 +58,8 @@ def create_app():
             "/apispec_1.json",
             "/auth/login",
             "/auth/register",
-            "/report"
+            "/report",
+            "/vendor-mock"  # Cho phép truy cập vào endpoint giả lập nhà cung cấp mà không cần JWT
         ]
         if any(request.path.startswith(p) for p in allowed_paths):
             return
@@ -120,6 +121,7 @@ def create_app():
             {"name": "Warehouses", "description": "Warehouse management"},
             {"name": "Warehouse Items", "description": "Inventory items in warehouses"},
             {"name": "Export", "description": "Export management"},
+            {"name": "Vendor", "description": "Mock external vendor used for ACL testing"}
         ],
         "securityDefinitions": {
             "Bearer": {
@@ -136,6 +138,9 @@ def create_app():
 
     # --- Đăng ký routes ---
     register_routes(app)
+    #DM Hưng
+    print(">>> SQLALCHEMY_DATABASE_URI =", app.config["SQLALCHEMY_DATABASE_URI"])
+
 
     return app
 

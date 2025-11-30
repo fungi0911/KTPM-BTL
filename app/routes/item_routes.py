@@ -6,14 +6,20 @@ from ..models.warehouse_item import WarehouseItem
 from ..models.product import Product
 from ..models.warehouse import Warehouse
 from ..extensions import db, limiter
-from ..extensions import db
 from app.repositories import WarehouseItemRepository
 from app.utils.occ import occ_execute, occ_batch_update_quantity
+from requests.exceptions import RequestException
+from ..services.resilience import CircuitOpenError, RetryExhaustedError
+from ..services.vendor_api import UpstreamClientError, get_vendor_client
+from app.repositories import ProductRepository
+from app.tasks import update_product_price
 
 item_bp = Blueprint("item", __name__, url_prefix="/warehouse_items")
 
 # repository
 item_repo = WarehouseItemRepository(db.session)
+product_repo = ProductRepository(db.session)
+
 
 @item_bp.route('/', methods=['GET'])
 @limiter.limit("10 per minute")
@@ -38,6 +44,7 @@ def get_warehouse_items():
             results.append(i.to_dict())
 
     return jsonify(results)
+
 
 @item_bp.route('/search', methods=['GET'])
 @limiter.limit("10 per minute")
@@ -70,7 +77,7 @@ def search_items():
         description: Filtered list with metadata
     """
     q = WarehouseItem.query
-    # filters
+
     def as_int(name):
         val = request.args.get(name)
         if val is None:
@@ -105,6 +112,7 @@ def search_items():
         'items': [i.to_dict() for i in items]
     })
 
+
 @item_bp.route('/stats/products', methods=['GET'])
 @limiter.limit("10 per minute")
 def product_stock_stats():
@@ -122,6 +130,7 @@ def product_stock_stats():
       {'product_id': r['product_id'], 'product': prod_map.get(r['product_id']), 'total_quantity': r['total_quantity']} for r in rows
     ])
 
+
 @item_bp.route('/stats/warehouses', methods=['GET'])
 def warehouse_stock_stats():
     """Aggregate total quantity per warehouse
@@ -137,6 +146,7 @@ def warehouse_stock_stats():
     return jsonify([
       {'warehouse_id': r['warehouse_id'], 'warehouse': wh_map.get(r['warehouse_id']), 'total_quantity': r['total_quantity']} for r in rows
     ])
+
 
 @item_bp.route('/', methods=['POST'])
 @limiter.limit("10 per minute")
@@ -163,6 +173,7 @@ def create_warehouse_item():
     data = request.json
     item = item_repo.create(data)
     return jsonify(item.to_dict()), 201
+
 
 @item_bp.route('/<int:item_id>', methods=['GET'])
 @limiter.limit("10 per minute")
@@ -193,6 +204,7 @@ def get_warehouse_item(item_id):
         return jsonify(item)
 
     return jsonify(item.to_dict())
+
 
 @item_bp.route('/<int:item_id>', methods=['PUT'])
 @limiter.limit("10 per minute")
@@ -226,6 +238,7 @@ def update_warehouse_item(item_id):
     if not updated:
       abort(404)
     return jsonify(updated.to_dict())
+
 
 @item_bp.route('/<int:item_id>', methods=['DELETE'])
 @limiter.limit("10 per minute")
@@ -542,3 +555,129 @@ def transfer_items():
 #             "ts": event["ts"].isoformat(),
 #         },
 #     })
+
+@item_bp.route('/vendor_price/<int:product_id>', methods=['GET'])
+def get_vendor_price(product_id: int):
+    """Fetch current vendor price for a product via ACL (Circuit Breaker + Retry)
+    ---
+    tags:
+      - Warehouse Items
+    parameters:
+      - name: product_id
+        in: path
+        required: true
+        type: integer
+      - name: mode
+        in: query
+        type: string
+        enum: [down, flaky, ok]
+        description: Mock vendor behavior mode
+      - name: strategy
+        in: query
+        type: string
+        enum: [resilient, raw]
+        description: Use 'raw' to bypass resilience
+      - name: fail_rate
+        in: query
+        type: number
+        description: Failure rate for flaky mode
+      - name: delay_ms
+        in: query
+        type: integer
+        description: Artificial delay in ms
+    responses:
+      200:
+        description: Vendor price payload with metadata
+      400:
+        description: Client error (non-retryable)
+      502:
+        description: Vendor error after retries
+      503:
+        description: Circuit open
+    """
+    client = get_vendor_client()
+    strategy = request.args.get("strategy", "resilient")
+    
+    # Pass mock control params to vendor
+    passthrough = {
+        k: v for k, v in request.args.items() 
+        if k in {"mode", "fail_rate", "delay_ms"}
+    }
+    
+    try:
+        if strategy == "raw":
+            data, attempts = client.get_price_raw(
+                product_id, 
+                params=passthrough or None
+            )
+        else:
+            data, attempts = client.get_price(
+                product_id, 
+                params=passthrough or None
+            )
+        update_task_id = None
+        update_status = "skipped"
+        if isinstance(data, dict) and "price" in data:
+            product = product_repo.get_by_id(product_id)
+            if product:
+                task = update_product_price.delay(product_id, data["price"])
+                update_task_id = task.id
+                update_status = "enqueued"
+            else:
+                update_status = "product_not_found"
+
+        return jsonify({
+            "data": data,
+            "attempts": attempts,
+            "strategy": strategy,
+            "state": client.snapshot(),
+            "price_update": {
+                "status": update_status,
+                "task_id": update_task_id,
+            }
+        })
+    
+    except CircuitOpenError as e:
+        return jsonify({
+            "msg": "Circuit open: vendor temporarily disabled",
+            "breaker_name": e.breaker_name,
+            "state": e.breaker_state,
+        }), 503
+    
+    except UpstreamClientError as e:
+        return jsonify({
+            "msg": "Vendor client error (non-retryable)",
+            "status": e.status_code,
+            "detail": e.payload,
+            "state": client.snapshot(),
+        }), e.status_code
+    
+    except RetryExhaustedError as e:
+        return jsonify({
+            "msg": "Vendor error after retries",
+            "attempts": e.attempts,
+            "last_error": str(e.last_exception),
+            "state": client.snapshot(),
+        }), 502
+    
+    except RequestException as e:
+        # Should only happen in raw mode
+        return jsonify({
+            "msg": "Network error (no resilience)",
+            "detail": str(e),
+            "state": client.snapshot(),
+        }), 502
+
+
+@item_bp.route('/vendor_state', methods=['GET'])
+def get_vendor_state():
+    """Expose circuit breaker state and metrics.
+    ---
+    tags:
+      - Warehouse Items
+    responses:
+      200:
+        description: Current vendor client state
+    """
+    client = get_vendor_client()
+    return jsonify(client.snapshot())
