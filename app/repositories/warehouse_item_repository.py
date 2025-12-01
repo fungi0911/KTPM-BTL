@@ -30,7 +30,7 @@ class WarehouseItemRepository(BaseRepository):
         if cached is not None:
             return cached
         rows = self.session.query(WarehouseItem).all()
-        # rows=apply_events_for_rows(rows)
+        rows=apply_events_for_rows(rows)
         set_json(ITEM_LIST_KEY, [r.to_dict() for r in rows])
         return rows
 

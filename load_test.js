@@ -21,7 +21,7 @@ export default function () {
 
     // Thay Token thật lấy từ Postman/Login vào đây
     const token =
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDU3MDM2NSwianRpIjoiOWY5Y2Q1ZmYtMTU0Ny00ZDkzLThlOWUtNzQ5YmIyMTUxNjg0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6ImFkbWluIiwibmJmIjoxNzY0NTcwMzY1LCJjc3JmIjoiMmYxOGYyY2MtZmY0Ni00NmQzLTgxNjgtODhmY2VlODI4ZTkwIiwiZXhwIjoxNzY0NTc3NTY1LCJyb2xlIjoiYWRtaW4ifQ.Pdrww53FRwa_aKLq8Jokh-AQSNSYl9LZQFmL-JFfrGw";
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDU3NDAxNiwianRpIjoiMWIzNDRlNDMtYzE5Ny00YjgyLTg4NmQtZjQ5Y2MzZjUxYjVmIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6ImFkbWluIiwibmJmIjoxNzY0NTc0MDE2LCJjc3JmIjoiMWRhZDcxYmUtZWVjMi00NDg4LTlkMGItOTI5ODFkYzAyZjc4IiwiZXhwIjoxNzY0NTgxMjE2LCJyb2xlIjoiYWRtaW4ifQ.4HfhJYVSlJAbrn--4JTN8P4CFbWYxks_Eru5vQF9nFk";
 
     const params = {
         headers: {

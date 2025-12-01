@@ -22,7 +22,7 @@ product_repo = ProductRepository(db.session)
 
 
 @item_bp.route('/', methods=['GET'])
-# @limiter.limit("10 per minute")
+@limiter.limit("10 per minute")
 def get_warehouse_items():
     """Get all warehouse items
     ---
