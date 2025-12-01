@@ -267,7 +267,7 @@ def delete_warehouse_item(item_id):
 
 @item_bp.route('/<int:item_id>/increment', methods=['POST'])
 @jwt_required()
-def increment_item_quantity(item_id):
+def increment_item_quantity_v1(item_id):
     """Atomically increment quantity of a warehouse item.
     ---
     tags:

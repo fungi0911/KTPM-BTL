@@ -76,12 +76,12 @@ def update_product_quantity(item_id: int, delta: int, client_version: int, mode:
         delete_key("warehouse_items:list")
         delete_key("stats:products")
         delete_key("stats:warehouses")
-        return jsonify({
+        return {
             'item_id': item_id,
             'delta': delta,
             'status': 'updated-naive',
             'rowcount': res.rowcount
-        })
+        }
 
     # Generic OCC executor: routes define SQL builder, OCC handles retries
     read_sql = "SELECT COALESCE(version, 0) AS version FROM warehouse_items WHERE id = :id"
@@ -111,7 +111,7 @@ def update_product_quantity(item_id: int, delta: int, client_version: int, mode:
         expected_version_override=client_version
     )
     if not ok:
-        return jsonify({'msg': 'conflict or not found, please retry later'}), 409
+        return {'msg': 'conflict or not found, please retry later'}
 
     # invalidate cache for this item and stats
     from app.utils.cache import delete_key, _make_key
@@ -119,8 +119,8 @@ def update_product_quantity(item_id: int, delta: int, client_version: int, mode:
     delete_key("warehouse_items:list")
     delete_key("stats:products")
     delete_key("stats:warehouses")
-    return jsonify({
+    return {
         "item_id": item_id,
         "delta": delta,
         "status": "updated"
-    })
+    }
