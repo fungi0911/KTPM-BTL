@@ -81,7 +81,7 @@ def update_product_quantity(item_id: int, delta: int, client_version: int, mode:
             'delta': delta,
             'status': 'updated-naive',
             'rowcount': res.rowcount
-        }), 200
+        })
 
     # Generic OCC executor: routes define SQL builder, OCC handles retries
     read_sql = "SELECT COALESCE(version, 0) AS version FROM warehouse_items WHERE id = :id"
@@ -123,4 +123,4 @@ def update_product_quantity(item_id: int, delta: int, client_version: int, mode:
         "item_id": item_id,
         "delta": delta,
         "status": "updated"
-    }), 200
+    })
