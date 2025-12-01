@@ -85,6 +85,9 @@ def download_barchart(task_id):
         except Exception as e:
             return jsonify({"error": str(e)}), 500
 
+        if data.get("message") == "No items found":
+            return jsonify({"message": "No items found"}), 202
+
         file_path = data.get("file_path")
         file_path = os.path.normpath(file_path)
         if not file_path or not os.path.exists(file_path):
