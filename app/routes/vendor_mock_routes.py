@@ -7,7 +7,7 @@ from app.extensions import limiter
 vendor_mock_bp = Blueprint("vendor_mock", __name__, url_prefix="/vendor-mock")
 
 @vendor_mock_bp.route("/prices/<int:product_id>", methods=["GET"])
-@limiter.limit("10 per minute")
+# @limiter.limit("200 per minute")
 def mock_price(product_id: int):
     """
     Fake external API that sometimes fails or delays.
