@@ -2,6 +2,7 @@ from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required
 
 from app.event_store.event_store import append_event, apply_events_for_stream
+from ..celery_app import celery
 from ..models.warehouse_item import WarehouseItem
 from ..models.product import Product
 from ..models.warehouse import Warehouse
@@ -12,7 +13,7 @@ from requests.exceptions import RequestException
 from ..services.resilience import CircuitOpenError, RetryExhaustedError
 from ..services.vendor_api import UpstreamClientError, get_vendor_client
 from app.repositories import ProductRepository
-from app.tasks import update_product_price
+from app.tasks import update_product_price, update_product_quantity
 
 item_bp = Blueprint("item", __name__, url_prefix="/warehouse_items")
 
@@ -266,7 +267,7 @@ def delete_warehouse_item(item_id):
 
 @item_bp.route('/<int:item_id>/increment', methods=['POST'])
 @jwt_required()
-def increment_item_quantity(item_id):
+def increment_item_quantity_v1(item_id):
     """Atomically increment quantity of a warehouse item.
     ---
     tags:
@@ -356,6 +357,38 @@ def increment_item_quantity(item_id):
       "status": "updated"
     }), 200
 
+@item_bp.route('/<int:item_id>/increment/v2', methods=['POST'])
+@jwt_required()
+def increment_item_quantity(item_id):
+    """Atomically increment quantity of a warehouse item."""
+    data = request.json or {}
+    delta = data.get('delta')
+    if not isinstance(delta, int):
+        return jsonify({'msg': 'delta must be integer'}), 400
+    # Naive mode (no OCC) for demo/testing lost updates: ?mode=naive
+    mode = request.args.get('mode')
+
+    client_version = data.get('version') if isinstance(data.get('version'), int) else None
+
+    task = update_product_quantity.apply_async(args=[item_id, delta, client_version,  mode])
+
+    return {
+        "task_id": task.id,
+        "status": task.status
+    }
+
+@item_bp.route('/tasks/<task_id>', methods=['GET'])
+@jwt_required()
+def get_task_status(task_id):
+    """
+    Check task status/result.
+    """
+    res = celery.AsyncResult(task_id)
+    response = {
+        'task_id': task_id,
+        'state': res.state,  # PENDING, STARTED, SUCCESS, FAILURE, RETRY
+    }
+    return jsonify(response), 200
 
 @item_bp.route('/transfer', methods=['POST'])
 @jwt_required()
