@@ -23,8 +23,8 @@ def get_warehouse_items():
       200:
         description: List of warehouse items with warehouse & product info
     """
-    stream = f"warehouse_item"
-    apply_events_for_stream(stream)
+    # stream = f"warehouse_item"
+    # apply_events_for_stream(stream)
     items = item_repo.list()
 
     results = []
@@ -175,8 +175,8 @@ def get_warehouse_item(item_id):
       404:
         description: Not found
     """
-    stream = f"warehouse_item:{item_id}"
-    apply_events_for_stream(stream)
+    # stream = f"warehouse_item:{item_id}"
+    # apply_events_for_stream(stream)
     item = item_repo.get_by_id(item_id)
 
     if not item:

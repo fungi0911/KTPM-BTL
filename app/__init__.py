@@ -19,16 +19,16 @@ def create_app():
     # SQLAlchemy query-counter instrumentation has been removed per user request.
 
     #Đoạn này để khởi tạo kết nối MongoDB cho event store, xoá đi không nó không chạy được
-    global mongo_client
-    if mongo_client is None:
-        try:
-            mongo_client = MongoClient(app.config.get("MONGO_URI"))
-            mongo_client.admin.command('ping')
-            event_store.mongo_client = mongo_client
-            event_store.init_event_store()
-            print("Connected to MongoDB for event store")
-        except Exception as e:
-            print(f"Failed to connect to MongoDB: {e}")
+    # global mongo_client
+    # if mongo_client is None:
+    #     try:
+    #         mongo_client = MongoClient(app.config.get("MONGO_URI"))
+    #         mongo_client.admin.command('ping')
+    #         event_store.mongo_client = mongo_client
+    #         event_store.init_event_store()
+    #         print("Connected to MongoDB for event store")
+    #     except Exception as e:
+    #         print(f"Failed to connect to MongoDB: {e}")
 
     # Initialize Redis client for caching
     if extensions.redis_client is None:
