@@ -8,7 +8,7 @@ import pybreaker
 from tenacity import (
     RetryError as TenacityRetryError,
     Retrying,
-    retry_if_exception_type,
+    retry_if_exception,
     stop_after_attempt,
     stop_after_delay,
     wait_exponential,
@@ -127,7 +127,7 @@ class resilient_call:
         name: str = "default",
         fail_max: int = 5,
         reset_timeout: float = 30.0,
-        success_threshold: int = 2,
+        success_threshold: int = 4,
         exclude_exceptions: Tuple[Type[Exception], ...] = (),
         # Retry params  
         retry_attempts: int = 2,
@@ -139,7 +139,13 @@ class resilient_call:
         retry_exceptions: Tuple[Type[Exception], ...] = (Exception,),
     ):
         self.name = name
-        self._exclude = exclude_exceptions
+        # Only keep valid exception classes for breaker.exclude
+        self._exclude = tuple(
+            exc for exc in exclude_exceptions
+            if isinstance(exc, type) and issubclass(exc, BaseException)
+        )
+        if len(self._exclude) != len(exclude_exceptions):
+            logger.warning("exclude_exceptions contains non-exception entries; they were ignored")
         self._metrics = _ThreadSafeMetrics()  # Thread-safe!
         
         # Circuit Breaker (pybreaker is thread-safe internally)
@@ -151,6 +157,7 @@ class resilient_call:
             listeners=[_MetricsListener(name, self._metrics)],
         )
         # Store for snapshot
+        self.breaker.success_threshold = success_threshold
         self._success_threshold = success_threshold
         
         # Retry configuration
@@ -160,11 +167,7 @@ class resilient_call:
         self.retry_wait_multiplier = retry_wait_multiplier
         self.retry_jitter = retry_jitter
         self.retry_max_time = retry_max_time
-        # Never retry exceptions explicitly excluded from the breaker
-        self.retry_exceptions = tuple(
-            exc for exc in retry_exceptions
-            if exc not in exclude_exceptions
-        )
+        self.retry_exceptions = tuple(retry_exceptions)
     
     def __call__(self, func: Callable) -> Callable:
         """Decorator syntax."""
@@ -196,7 +199,10 @@ class resilient_call:
                 stop_conditions.append(stop_after_delay(self.retry_max_time))
             
             retryer = Retrying(
-                retry=retry_if_exception_type(self.retry_exceptions),
+                retry=retry_if_exception(
+                    lambda exc: isinstance(exc, self.retry_exceptions)
+                    and not isinstance(exc, self._exclude)
+                ),
                 wait=wait_exponential(
                     multiplier=self.retry_wait_multiplier,
                     min=self.retry_wait_min,
