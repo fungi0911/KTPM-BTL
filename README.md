@@ -75,7 +75,7 @@ Sử dụng **Gzip** hoặc **Zstandard (zstd)** để nén JSON trước khi g�
 - Retry có điều kiện
 - Ném lỗi `RetryExhaustedError` khi retry hết giới hạn
 
-### 5.5. Mức độ dễ dùng
+### 5.3. Mức độ dễ dùng
 - Decorator: `@resilient_call`
 - Config linh hoạt: fail_max, timeout, backoff, exclude_exceptions
 
@@ -89,12 +89,7 @@ Lý do:
 - MySQL hỗ trợ nhiều kết nối, row-level lock
 - Mở rộng tốt hơn, ổn định hơn
 
-### 6.2. Dùng Gunicorn thay Flask dev server
-- Flask server chỉ dành cho dev
-- Gunicorn hỗ trợ multi-worker, tận dụng CPU
-- Tự phục hồi, ổn định hơn trong production
-
-### 6.3. Optimistic Concurrency Control (OCC)
+### 6.2. Optimistic Concurrency Control (OCC)
 Giải quyết **lost update**.
 
 **Luồng thực hiện:**
