@@ -299,7 +299,7 @@ def increment_item_quantity_v1(item_id):
     mode = request.args.get('mode')
     if mode == 'naive':
       res = db.session.execute(
-        db.text("UPDATE warehouse_items SET quantity = quantity + :delta WHERE id = :id"),
+        db.text("UPDATE warehouse_items SET quantity = quantity + :delta WHERE id = :id AND quantity + :delta >= 0"),
         {'delta': delta, 'id': item_id}
       )
       db.session.commit()
@@ -325,7 +325,9 @@ def increment_item_quantity_v1(item_id):
       update_sql = """
         UPDATE warehouse_items
         SET quantity = quantity + :delta, version = :new_version
-        WHERE id = :id AND (version = :expected_version OR version IS NULL)
+        WHERE id = :id
+          AND (version = :expected_version OR version IS NULL)
+          AND quantity + :delta >= 0
       """
       update_params = {
         'id': item_id,
