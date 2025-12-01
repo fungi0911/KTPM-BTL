@@ -1,5 +1,8 @@
 from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required
+from ..models.user import User
+from ..extensions import db, limiter
+from app.utils.rbac import roles_required
 from ..extensions import db
 from app.repositories import UserRepository
 
@@ -9,6 +12,7 @@ user_bp = Blueprint("user", __name__, url_prefix="/users")
 user_repo = UserRepository(db.session)
 
 @user_bp.route('/', methods=['GET'])
+@limiter.limit("10 per minute")
 @jwt_required()
 def get_users():
     """Get all users
@@ -23,6 +27,7 @@ def get_users():
     return jsonify([u.to_dict() for u in users])
 
 @user_bp.route('/<int:user_id>', methods=['GET'])
+@limiter.limit("10 per minute")
 @jwt_required()
 def get_user(user_id):
     """Get user by ID
@@ -46,7 +51,9 @@ def get_user(user_id):
     return jsonify(user.to_dict())
 
 @user_bp.route('/<int:user_id>', methods=['PUT'])
+@limiter.limit("10 per minute")
 @jwt_required()
+@roles_required(['admin'])
 def update_user(user_id):
     """Update user (name, role, password)
     ---
@@ -65,6 +72,7 @@ def update_user(user_id):
             name: {type: string}
             role: {type: string}
             password: {type: string}
+            version: {type: integer}
     responses:
       200:
         description: Updated user
@@ -78,6 +86,8 @@ def update_user(user_id):
     return jsonify(updated.to_dict())
 
 @user_bp.route('/<int:user_id>', methods=['DELETE'])
+@roles_required(['admin'])
+@limiter.limit("10 per minute")
 @jwt_required()
 def delete_user(user_id):
     """Delete user

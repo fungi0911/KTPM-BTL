@@ -1,5 +1,6 @@
 from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required
+from app.utils.rbac import roles_required
 from ..extensions import db
 from app.repositories import WarehouseRepository
 
@@ -9,6 +10,7 @@ warehouse_bp = Blueprint("warehouse", __name__, url_prefix="/warehouses")
 warehouse_repo = WarehouseRepository(db.session)
 
 @warehouse_bp.route('/', methods=['GET'])
+@roles_required(['admin'])
 def get_warehouses():
     """Get all warehouses
     ---
@@ -22,7 +24,7 @@ def get_warehouses():
     return jsonify([w.to_dict() for w in warehouses])
 
 @warehouse_bp.route('/', methods=['POST'])
-@jwt_required()
+@roles_required(['admin'])
 def create_warehouse():
     """Create a new warehouse
     ---
@@ -36,6 +38,7 @@ def create_warehouse():
           type: object
           properties:
             name: {type: string}
+            version: {type: integer}
     responses:
       201:
         description: Warehouse created successfully
@@ -94,7 +97,7 @@ def get_items_for_warehouse(warehouse_id):
     return jsonify([i.to_dict() for i in items])
 
 @warehouse_bp.route('/<int:warehouse_id>', methods=['PUT'])
-@jwt_required()
+@roles_required(['admin'])
 def update_warehouse(warehouse_id):
     """Update warehouse
     ---
@@ -124,7 +127,7 @@ def update_warehouse(warehouse_id):
     return jsonify(updated.to_dict())
 
 @warehouse_bp.route('/<int:warehouse_id>', methods=['DELETE'])
-@jwt_required()
+@roles_required(['admin'])
 def delete_warehouse(warehouse_id):
     """Delete warehouse
     ---

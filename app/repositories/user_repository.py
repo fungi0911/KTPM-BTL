@@ -23,17 +23,44 @@ class UserRepository(BaseRepository):
         return u
 
     def update(self, id: int, data: dict) -> Optional[User]:
-        u = self.get_by_id(id)
-        if not u:
+        from app.utils.occ import occ_execute
+        read_sql = "SELECT COALESCE(version,0) AS version FROM users WHERE id = :id"
+        read_params = { 'id': id }
+
+        def build_update(expected_version: int):
+            set_parts = []
+            params = { 'id': id, 'expected_version': expected_version, 'new_version': expected_version + 1 }
+            if 'name' in data and data['name'] is not None:
+                set_parts.append('name = :name')
+                params['name'] = data['name']
+            if 'role' in data and data['role'] is not None:
+                set_parts.append('role = :role')
+                params['role'] = data['role']
+            if 'password' in data and data['password'] is not None:
+                # keep plain assignment semantics per existing logic
+                set_parts.append('password = :password')
+                params['password'] = data['password']
+            set_parts.append('version = :new_version')
+            set_clause = ', '.join(set_parts) if set_parts else 'version = :new_version'
+            update_sql = f"""
+                UPDATE users
+                SET {set_clause}
+                WHERE id = :id AND (version = :expected_version OR version IS NULL)
+            """
+            return update_sql, params
+
+        client_version = data.get('version')
+        ok = occ_execute(
+            read_sql,
+            read_params,
+            build_update,
+            session=self.session,
+            commit=True,
+            expected_version_override=client_version if client_version is not None else None
+        )
+        if not ok:
             return None
-        if 'name' in data:
-            u.name = data['name']
-        if 'role' in data:
-            u.role = data['role']
-        if 'password' in data:
-            u.set_password(data['password'])
-        self.session.commit()
-        return u
+        return self.session.get(User, id)
 
     def delete(self, id: int) -> bool:
         u = self.get_by_id(id)

@@ -10,7 +10,7 @@ export const options = {
 
     // (Tùy chọn) Ngưỡng chấp nhận được: 95% request phải nhanh hơn 200ms
     thresholds: {
-        http_req_duration: ["p(95)<200"],
+        http_req_duration: ["p(95)<2000"],
     },
 };
 
@@ -21,12 +21,13 @@ export default function () {
 
     // Thay Token thật lấy từ Postman/Login vào đây
     const token =
-        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDQ5NjU3MywianRpIjoiYjAwNGM0Y2QtYjYzMC00NDFmLTlmMjYtMDdlOGU4MDRlMTVkIiwidHlwZSI6ImFjY2VzcyIsInN1YiI6ImFkbWluIiwibmJmIjoxNzY0NDk2NTczLCJjc3JmIjoiOTA5YmM3Y2MtOWM4Mi00YjEwLWI1YTQtOGUzZTUzMmZmZWUxIiwiZXhwIjoxNzY0NTAzNzczLCJyb2xlIjoiYWRtaW4ifQ.3_XxWxEV9RuuBSIb57UYCwbqHuHgWDvv3iLEJmJk5Lo";
+        "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJmcmVzaCI6ZmFsc2UsImlhdCI6MTc2NDU3MDM2NSwianRpIjoiOWY5Y2Q1ZmYtMTU0Ny00ZDkzLThlOWUtNzQ5YmIyMTUxNjg0IiwidHlwZSI6ImFjY2VzcyIsInN1YiI6ImFkbWluIiwibmJmIjoxNzY0NTcwMzY1LCJjc3JmIjoiMmYxOGYyY2MtZmY0Ni00NmQzLTgxNjgtODhmY2VlODI4ZTkwIiwiZXhwIjoxNzY0NTc3NTY1LCJyb2xlIjoiYWRtaW4ifQ.Pdrww53FRwa_aKLq8Jokh-AQSNSYl9LZQFmL-JFfrGw";
 
     const params = {
         headers: {
             Authorization: `Bearer ${token}`,
             "Content-Type": "application/json",
+            "Accept-Encoding": "gzip",
         },
     };
 

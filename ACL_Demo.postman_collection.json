@@ -1,0 +1,819 @@
+{
+  "info": {
+    "name": "ACL Layer - Circuit Breaker + Retry Demo",
+    "description": "Comprehensive demo of resilience patterns with vendor API",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "variable": [
+    {
+      "key": "base_url",
+      "value": "http://127.0.0.1:5000",
+      "type": "string"
+    },
+    {
+      "key": "access_token",
+      "value": "",
+      "type": "string"
+    }
+  ],
+  "item": [
+    {
+      "name": "1. Setup",
+      "item": [
+        {
+          "name": "Login (Get Token)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.collectionVariables.set('access_token', jsonData.access_token);",
+                  "    pm.environment.set('access_token', jsonData.access_token);",
+                  "    console.log('Token saved:', jsonData.access_token);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n    \"username\": \"admin\",\n    \"password\": \"admin123\"\n}"
+            },
+            "url": {
+              "raw": "http://localhost:5000/auth/login",
+              "host": ["http://localhost:5000"],
+              "path": ["auth", "login"]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Check Vendor State (Initial)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const jsonData = pm.response.json();",
+                  "pm.test('Circuit is closed initially', function() {",
+                  "    pm.expect(jsonData.state).to.eql('closed');",
+                  "});",
+                  "",
+                  "console.log('Initial state:', JSON.stringify(jsonData, null, 2));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_state",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_state"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Normal Operations",
+      "item": [
+        {
+          "name": "Test 1: Normal Request (OK mode)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const jsonData = pm.response.json();",
+                  "pm.test('Got price data', function() {",
+                  "    pm.expect(jsonData.data).to.have.property('price');",
+                  "});",
+                  "",
+                  "pm.test('Only 1 attempt (no retry)', function() {",
+                  "    pm.expect(jsonData.attempts).to.eql(1);",
+                  "});",
+                  "",
+                  "pm.test('Circuit is closed', function() {",
+                  "    pm.expect(jsonData.state.state).to.eql('closed');",
+                  "});",
+                  "",
+                  "console.log('Response:', JSON.stringify(jsonData, null, 2));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/1?mode=ok",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "1"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "ok"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Test 2: Multiple OK Requests (5x)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 200', function() {",
+                  "    pm.response.to.have.status(200);",
+                  "});",
+                  "",
+                  "const jsonData = pm.response.json();",
+                  "pm.test('Metrics show multiple calls', function() {",
+                  "    pm.expect(jsonData.state.metrics.calls).to.be.above(0);",
+                  "    pm.expect(jsonData.state.metrics.successes).to.be.above(0);",
+                  "});",
+                  "",
+                  "console.log('Current metrics:', jsonData.state.metrics);"
+                ],
+                "type": "text/javascript"
+              }
+            },
+            {
+              "listen": "prerequest",
+              "script": {
+                "exec": [
+                  "// Run this request 5 times",
+                  "const maxIterations = 5;",
+                  "const currentIteration = pm.collectionVariables.get('iteration') || 0;",
+                  "",
+                  "if (currentIteration < maxIterations - 1) {",
+                  "    pm.collectionVariables.set('iteration', currentIteration + 1);",
+                  "    postman.setNextRequest(pm.info.requestName);",
+                  "} else {",
+                  "    pm.collectionVariables.set('iteration', 0);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/2?mode=ok",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "2"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "ok"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Retry Behavior",
+      "item": [
+        {
+          "name": "Test 3: Flaky Vendor (30% fail)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.test('Request eventually succeeded', function() {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "    ",
+                  "    console.log('Attempts used:', jsonData.attempts);",
+                  "    console.log('Total retries so far:', jsonData.state.metrics.retry_attempts_total);",
+                  "} else {",
+                  "    console.log('Request failed after all retries');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/3?mode=flaky&fail_rate=0.3",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "3"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "flaky"
+                },
+                {
+                  "key": "fail_rate",
+                  "value": "0.3"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Test 4: High Fail Rate (70%)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.test('Succeeded after retries', function() {",
+                  "        pm.expect(jsonData.attempts).to.be.above(1);",
+                  "    });",
+                  "    console.log('✓ Success after', jsonData.attempts, 'attempts');",
+                  "} else if (pm.response.code === 502) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.test('Failed after max retries', function() {",
+                  "        pm.expect(jsonData.msg).to.include('retry');",
+                  "    });",
+                  "    console.log('✗ Failed after', jsonData.attempts, 'attempts');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/4?mode=flaky&fail_rate=0.7",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "4"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "flaky"
+                },
+                {
+                  "key": "fail_rate",
+                  "value": "0.7"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Test 5: Compare With vs Without Retry",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const jsonData = pm.response.json();",
+                  "",
+                  "if (jsonData.strategy === 'raw') {",
+                  "    console.log('RAW mode (no retry):', pm.response.code);",
+                  "} else {",
+                  "    console.log('RESILIENT mode:', pm.response.code, '- attempts:', jsonData.attempts);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/5?mode=flaky&fail_rate=0.5&strategy=raw",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "5"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "flaky"
+                },
+                {
+                  "key": "fail_rate",
+                  "value": "0.5"
+                },
+                {
+                  "key": "strategy",
+                  "value": "raw",
+                  "description": "Change to 'resilient' or remove to see difference"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Circuit Breaker",
+      "item": [
+        {
+          "name": "Test 6: Trigger Circuit Open (Req 1/5)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const jsonData = pm.response.json();",
+                  "console.log('Request 1 - Fail counter:', jsonData.state.fail_counter);",
+                  "console.log('State:', jsonData.state.state);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/10?mode=down",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "10"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "down"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Test 6: Trigger Circuit Open (Req 2/5)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const jsonData = pm.response.json();",
+                  "console.log('Request 2 - Fail counter:', jsonData.state.fail_counter);",
+                  "console.log('State:', jsonData.state.state);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/10?mode=down",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "10"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "down"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Test 6: Trigger Circuit Open (Req 3/5)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const jsonData = pm.response.json();",
+                  "console.log('Request 3 - Fail counter:', jsonData.state.fail_counter);",
+                  "console.log('State:', jsonData.state.state);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/10?mode=down",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "10"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "down"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Test 6: Trigger Circuit Open (Req 4/5)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const jsonData = pm.response.json();",
+                  "console.log('Request 4 - Fail counter:', jsonData.state.fail_counter);",
+                  "console.log('State:', jsonData.state.state);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/10?mode=down",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "10"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "down"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Test 6: Trigger Circuit Open (Req 5/5)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const jsonData = pm.response.json();",
+                  "console.log('Request 5 - Fail counter:', jsonData.state.fail_counter);",
+                  "console.log('State:', jsonData.state.state);",
+                  "",
+                  "pm.test('Circuit should be open', function() {",
+                  "    pm.expect(jsonData.state.state).to.eql('open');",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/10?mode=down",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "10"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "down"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Test 7: Fail Fast (Circuit Open)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 503 (Circuit Open)', function() {",
+                  "    pm.response.to.have.status(503);",
+                  "});",
+                  "",
+                  "const jsonData = pm.response.json();",
+                  "pm.test('Message indicates circuit open', function() {",
+                  "    pm.expect(jsonData.msg).to.include('Circuit open');",
+                  "});",
+                  "",
+                  "console.log('✓ Fail fast - no upstream call made');",
+                  "console.log('State:', jsonData.state.state);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/11?mode=ok",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "11"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "ok",
+                  "description": "Even with OK mode, circuit is open"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Check State (Should be OPEN)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const jsonData = pm.response.json();",
+                  "pm.test('Circuit is open', function() {",
+                  "    pm.expect(jsonData.state).to.eql('open');",
+                  "});",
+                  "",
+                  "console.log('Current state:', JSON.stringify(jsonData, null, 2));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_state",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_state"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Circuit Recovery",
+      "item": [
+        {
+          "name": "WAIT 15 seconds (Manual)",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_state",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_state"]
+            },
+            "description": "⏱️ WAIT 15 seconds before running this!\n\nThis allows the circuit breaker recovery timeout to elapse."
+          },
+          "response": []
+        },
+        {
+          "name": "Test 8: Circuit Half-Open (Test Request)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "if (pm.response.code === 200) {",
+                  "    const jsonData = pm.response.json();",
+                  "    pm.test('Request succeeded', function() {",
+                  "        pm.response.to.have.status(200);",
+                  "    });",
+                  "    ",
+                  "    console.log('✓ Circuit recovering - state:', jsonData.state.state);",
+                  "    console.log('State changes:', jsonData.state.metrics.state_changes);",
+                  "} else {",
+                  "    console.log('Still in recovery period or failed');",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/12?mode=ok",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "12"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "ok"
+                }
+              ]
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Check State (Should be CLOSED)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const jsonData = pm.response.json();",
+                  "pm.test('Circuit is closed after recovery', function() {",
+                  "    pm.expect(jsonData.state).to.eql('closed');",
+                  "});",
+                  "",
+                  "pm.test('Fail counter reset', function() {",
+                  "    pm.expect(jsonData.fail_counter).to.eql(0);",
+                  "});",
+                  "",
+                  "console.log('✓ Circuit fully recovered');",
+                  "console.log('Final state:', JSON.stringify(jsonData, null, 2));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_state",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_state"]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Edge Cases",
+      "item": [
+        {
+          "name": "Test 9: 4xx Client Error (Non-retryable)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Status is 4xx', function() {",
+                  "    pm.expect(pm.response.code).to.be.within(400, 499);",
+                  "});",
+                  "",
+                  "const jsonData = pm.response.json();",
+                  "pm.test('Only 1 attempt (no retry on 4xx)', function() {",
+                  "    // 4xx errors are excluded from retry",
+                  "    console.log('No retry on client errors');",
+                  "});",
+                  "",
+                  "console.log('Client error does not break circuit');"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/999999?mode=ok",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "999999"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "ok"
+                }
+              ],
+              "description": "If vendor returns 404 for invalid product_id"
+            }
+          },
+          "response": []
+        },
+        {
+          "name": "Test 10: Slow Vendor (Delay)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const responseTime = pm.response.responseTime;",
+                  "console.log('Response time:', responseTime, 'ms');",
+                  "",
+                  "pm.test('Request handled within timeout', function() {",
+                  "    // Timeout is 2000ms (VENDOR_TIMEOUT)",
+                  "    pm.expect(responseTime).to.be.below(3000);",
+                  "});"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_price/15?mode=ok&delay_ms=500",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_price", "15"],
+              "query": [
+                {
+                  "key": "mode",
+                  "value": "ok"
+                },
+                {
+                  "key": "delay_ms",
+                  "value": "500",
+                  "description": "Artificial delay in milliseconds"
+                }
+              ]
+            }
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. Final Metrics",
+      "item": [
+        {
+          "name": "Get Complete State Summary",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "const jsonData = pm.response.json();",
+                  "",
+                  "console.log('='.repeat(70));",
+                  "console.log('FINAL METRICS SUMMARY');",
+                  "console.log('='.repeat(70));",
+                  "console.log('');",
+                  "console.log('Circuit State:', jsonData.state);",
+                  "console.log('Fail Counter:', jsonData.fail_counter, '/', jsonData.fail_max);",
+                  "console.log('');",
+                  "console.log('Metrics:');",
+                  "console.log('  Total calls:', jsonData.metrics.calls);",
+                  "console.log('  Successes:', jsonData.metrics.successes);",
+                  "console.log('  Failures:', jsonData.metrics.failures);",
+                  "console.log('  State changes:', jsonData.metrics.state_changes);",
+                  "console.log('  Total retries:', jsonData.metrics.retry_attempts_total);",
+                  "console.log('');",
+                  "console.log('Configuration:');",
+                  "console.log('  Base URL:', jsonData.base_url);",
+                  "console.log('  Timeout:', jsonData.timeout, 's');",
+                  "console.log('  Retry attempts:', jsonData.retry_config.attempts);",
+                  "console.log('  Retry wait:', jsonData.retry_config.wait_min, '-', jsonData.retry_config.wait_max, 's');",
+                  "console.log('');",
+                  "console.log('Success Rate:', ",
+                  "    ((jsonData.metrics.successes / jsonData.metrics.calls) * 100).toFixed(1), '%');",
+                  "console.log('='.repeat(70));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "http://localhost:5000/warehouse_items/vendor_state",
+              "host": ["http://localhost:5000"],
+              "path": ["warehouse_items", "vendor_state"]
+            }
+          },
+          "response": []
+        }
+      ]
+    }
+  ]
+}
