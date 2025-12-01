@@ -75,14 +75,6 @@ Sử dụng **Gzip** hoặc **Zstandard (zstd)** để nén JSON trước khi g�
 - Retry có điều kiện
 - Ném lỗi `RetryExhaustedError` khi retry hết giới hạn
 
-### 5.3. Thread Safety
-- Dùng `threading.Lock` cho metrics
-- `pybreaker` thread-safe
-
-### 5.4. Monitoring
-- Listener theo dõi trạng thái circuit
-- `snapshot()` cung cấp số liệu runtime
-
 ### 5.5. Mức độ dễ dùng
 - Decorator: `@resilient_call`
 - Config linh hoạt: fail_max, timeout, backoff, exclude_exceptions
