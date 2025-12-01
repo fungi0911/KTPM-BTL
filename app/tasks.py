@@ -21,7 +21,7 @@ def generate_barchart(product_id):
         WarehouseItem.warehouse_id, WarehouseItem.quantity
     ).filter_by(product_id=product_id).all()
 
-    if items is None:
+    if not items:
         return {"message": "No items found"}
 
     warehouses, quantities = zip(*items) if items else ([], [])
