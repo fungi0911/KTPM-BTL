@@ -6,13 +6,14 @@ from matplotlib import pyplot as plt
 from matplotlib.backends.backend_pdf import PdfPages
 
 from ..celery_app import celery
-
+from ..extensions import limiter
 from app.tasks import generate_barchart
 from ..models.warehouse_item import WarehouseItem
 
 export_bp = Blueprint("export", __name__, url_prefix="/report")
 
 @export_bp.route("/<int:product_id>/v1", methods=["POST"])
+@limiter.limit("10 per minute")
 def barchart_export(product_id):
     """
         Generate PDF quantity report for an product
@@ -71,6 +72,7 @@ def barchart_export(product_id):
     )
 
 @export_bp.route("/<int:product_id>", methods=["POST"])
+@limiter.limit("10 per minute")
 def bar_chart(product_id):
     """
     Generate PDF quantity report for an product
