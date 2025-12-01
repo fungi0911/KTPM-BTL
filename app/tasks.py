@@ -67,7 +67,7 @@ def update_product_price(product_id: int, new_price: float):
 def update_product_quantity(item_id: int, delta: int, client_version: int, mode: str):
     if mode == 'naive':
         res = db.session.execute(
-            db.text("UPDATE warehouse_items SET quantity = quantity + :delta WHERE id = :id"),
+            db.text("UPDATE warehouse_items SET quantity = quantity + :delta WHERE id = :id AND quantity + :delta >= 0"),
             {'delta': delta, 'id': item_id}
         )
         db.session.commit()
@@ -89,12 +89,13 @@ def update_product_quantity(item_id: int, delta: int, client_version: int, mode:
 
     def build_update(expected_version: int):
         update_sql = """
-                     UPDATE warehouse_items
-                     SET quantity = quantity + :delta, \
-                         version  = :new_version
-                     WHERE id = :id \
-                       AND (version = :expected_version OR version IS NULL) \
-                     """
+            UPDATE warehouse_items
+            SET quantity = quantity + :delta,
+                version  = :new_version
+            WHERE id = :id
+              AND (version = :expected_version OR version IS NULL)
+              AND quantity + :delta >= 0
+        """
         update_params = {
             'id': item_id,
             'delta': delta,

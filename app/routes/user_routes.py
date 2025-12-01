@@ -12,7 +12,6 @@ user_bp = Blueprint("user", __name__, url_prefix="/users")
 user_repo = UserRepository(db.session)
 
 @user_bp.route('/', methods=['GET'])
-@limiter.limit("10 per minute")
 @jwt_required()
 def get_users():
     """Get all users
@@ -27,7 +26,6 @@ def get_users():
     return jsonify([u.to_dict() for u in users])
 
 @user_bp.route('/<int:user_id>', methods=['GET'])
-@limiter.limit("10 per minute")
 @jwt_required()
 def get_user(user_id):
     """Get user by ID
@@ -51,7 +49,6 @@ def get_user(user_id):
     return jsonify(user.to_dict())
 
 @user_bp.route('/<int:user_id>', methods=['PUT'])
-@limiter.limit("10 per minute")
 @jwt_required()
 @roles_required(['admin'])
 def update_user(user_id):
@@ -87,7 +84,6 @@ def update_user(user_id):
 
 @user_bp.route('/<int:user_id>', methods=['DELETE'])
 @roles_required(['admin'])
-@limiter.limit("10 per minute")
 @jwt_required()
 def delete_user(user_id):
     """Delete user

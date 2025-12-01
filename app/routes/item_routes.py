@@ -23,7 +23,6 @@ product_repo = ProductRepository(db.session)
 
 
 @item_bp.route('/', methods=['GET'])
-@limiter.limit("10 per minute")
 def get_warehouse_items():
     """Get all warehouse items
     ---
@@ -48,7 +47,6 @@ def get_warehouse_items():
 
 
 @item_bp.route('/search', methods=['GET'])
-@limiter.limit("10 per minute")
 def search_items():
     """Search warehouse items with filters & pagination
     ---
@@ -115,7 +113,6 @@ def search_items():
 
 
 @item_bp.route('/stats/products', methods=['GET'])
-@limiter.limit("10 per minute")
 def product_stock_stats():
     """Aggregate total quantity per product across all warehouses
     ---
@@ -150,7 +147,6 @@ def warehouse_stock_stats():
 
 
 @item_bp.route('/', methods=['POST'])
-@limiter.limit("10 per minute")
 @jwt_required()
 def create_warehouse_item():
     """Add product to warehouse
@@ -208,7 +204,6 @@ def get_warehouse_item(item_id):
 
 
 @item_bp.route('/<int:item_id>', methods=['PUT'])
-@limiter.limit("10 per minute")
 @jwt_required()
 def update_warehouse_item(item_id):
     """Update warehouse item (quantity or reassignment)
@@ -242,7 +237,6 @@ def update_warehouse_item(item_id):
 
 
 @item_bp.route('/<int:item_id>', methods=['DELETE'])
-@limiter.limit("10 per minute")
 @jwt_required()
 def delete_warehouse_item(item_id):
     """Delete warehouse item
@@ -299,7 +293,7 @@ def increment_item_quantity_v1(item_id):
     mode = request.args.get('mode')
     if mode == 'naive':
       res = db.session.execute(
-        db.text("UPDATE warehouse_items SET quantity = quantity + :delta WHERE id = :id"),
+        db.text("UPDATE warehouse_items SET quantity = quantity + :delta WHERE id = :id AND quantity + :delta >= 0"),
         {'delta': delta, 'id': item_id}
       )
       db.session.commit()
@@ -325,7 +319,9 @@ def increment_item_quantity_v1(item_id):
       update_sql = """
         UPDATE warehouse_items
         SET quantity = quantity + :delta, version = :new_version
-        WHERE id = :id AND (version = :expected_version OR version IS NULL)
+        WHERE id = :id
+          AND (version = :expected_version OR version IS NULL)
+          AND quantity + :delta >= 0
       """
       update_params = {
         'id': item_id,
