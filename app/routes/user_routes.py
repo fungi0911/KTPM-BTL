@@ -1,9 +1,15 @@
-from flask import Blueprint, request, jsonify
+from flask import Blueprint, request, jsonify, abort
 from flask_jwt_extended import jwt_required
 from ..models.user import User
+from ..extensions import db, limiter
+from app.utils.rbac import roles_required
 from ..extensions import db
+from app.repositories import UserRepository
 
 user_bp = Blueprint("user", __name__, url_prefix="/users")
+
+# repository
+user_repo = UserRepository(db.session)
 
 @user_bp.route('/', methods=['GET'])
 @jwt_required()
@@ -16,7 +22,7 @@ def get_users():
       200:
         description: List of users
     """
-    users = User.query.all()
+    users = user_repo.list()
     return jsonify([u.to_dict() for u in users])
 
 @user_bp.route('/<int:user_id>', methods=['GET'])
@@ -37,11 +43,14 @@ def get_user(user_id):
       404:
         description: Not found
     """
-    user = User.query.get_or_404(user_id)
+    user = user_repo.get_by_id(user_id)
+    if not user:
+      abort(404)
     return jsonify(user.to_dict())
 
 @user_bp.route('/<int:user_id>', methods=['PUT'])
 @jwt_required()
+@roles_required(['admin'])
 def update_user(user_id):
     """Update user (name, role, password)
     ---
@@ -60,24 +69,21 @@ def update_user(user_id):
             name: {type: string}
             role: {type: string}
             password: {type: string}
+            version: {type: integer}
     responses:
       200:
         description: Updated user
       404:
         description: Not found
     """
-    user = User.query.get_or_404(user_id)
     data = request.json or {}
-    if 'name' in data:
-        user.name = data['name']
-    if 'role' in data:
-        user.role = data['role']
-    if 'password' in data:
-        user.set_password(data['password'])
-    db.session.commit()
-    return jsonify(user.to_dict())
+    updated = user_repo.update(user_id, data)
+    if not updated:
+      abort(404)
+    return jsonify(updated.to_dict())
 
 @user_bp.route('/<int:user_id>', methods=['DELETE'])
+@roles_required(['admin'])
 @jwt_required()
 def delete_user(user_id):
     """Delete user
@@ -95,9 +101,9 @@ def delete_user(user_id):
       404:
         description: Not found
     """
-    user = User.query.get_or_404(user_id)
-    db.session.delete(user)
-    db.session.commit()
-    return '', 204
+    ok = user_repo.delete(user_id)
+    if not ok:
+      abort(404)
+    return jsonify({'status': 'deleted', 'user_id': user_id}), 200
 
 
